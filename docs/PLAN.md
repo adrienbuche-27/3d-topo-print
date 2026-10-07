@@ -34,7 +34,7 @@ A personal web app for designing 3D-printable terrain models of a location, with
 ┌───────────────────────────────────▼─────────── Backend (Python + FastAPI) ────┐
 │  gpx.py      parse GPX (gpxpy), simplify, compute bbox + margin              │
 │  dem.py      fetch Copernicus GLO-30 tiles (COG, windowed reads), local cache│
-│  project.py  WGS84 → local UTM (pyproj), resample to the print grid          │
+│  heightfield.py  WGS84 → local UTM (pyproj), resample to the print grid      │
 │  terrain.py  heightfield → watertight solid with a flat base                 │
 │  route.py    route → 2D buffered polygon (shapely) → insert solid            │
 │  boolean.py  terrain − insert (manifold3d through trimesh)                   │
@@ -109,7 +109,7 @@ README.md       written after v1
 - [x] **Step 0: Scaffolding.** Monorepo layout, Python project (uv + `pyproject.toml`), Vite React TS app, lint/format (ruff, oxlint/prettier), dev script that runs both (`scripts/dev.sh`).
 - [x] **Step 1: GPX module.** Parse, clean, simplify, stats (distance, D+, D−), bbox + margin. Unit tests with fixtures. (`backend/app/gpx.py`, `backend/app/geo.py`; fixture `alps_loop.gpx` is a synthetic loop near Chamonix)
 - [x] **Step 2: DEM module.** Find the GLO-30 tiles that cover a bbox, mosaic, cache. Test on one known Alpine area. (`backend/app/dem.py`; whole tiles are cached in `backend/.cache/dem` or `$TOPO_DEM_CACHE_DIR`; the Mont Blanc test downloads real data and is marked `network`)
-- [ ] **Step 3: Projection & resampling.** UTM conversion and a regular print grid.
+- [x] **Step 3: Projection & resampling.** UTM conversion and a regular print grid. (`backend/app/heightfield.py`; DEM read at half the node spacing with averaging, then bilinear onto grid nodes; optional Gaussian smoothing)
 - [ ] **Step 4: Terrain solid.** Heightfield → watertight mesh with a base. Test: `mesh.is_watertight`, size within 256 mm.
 - [ ] **Step 5: Route insert.** Buffered polygon → band solid → boolean ops. Test that both bodies are manifold and do not overlap.
 - [ ] **Step 6: Export.** 3MF with 2 objects, STL zip, GLB. Manual check: open in Bambu Studio and assign 2 filaments.
