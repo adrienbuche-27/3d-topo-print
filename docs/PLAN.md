@@ -55,7 +55,7 @@ A personal web app for designing 3D-printable terrain models of a location, with
 1. **GPX:** parse all tracks and segments, drop outliers, simplify (Douglas-Peucker, tolerance tied to the print resolution).
 2. **Framing:** bbox of the route plus a margin (default 10 %), expanded to the requested aspect ratio (default: fit the route).
 3. **Projection:** convert everything to the local UTM zone (metres), so distances are true and not distorted.
-4. **Scaling:** `scale = print_width_mm / bbox_width_m`. Vertical scale = `scale × z_exaggeration` (default 1.5–2× for prints).
+4. **Scaling:** `scale = print_width_mm / bbox_width_m`. Vertical scale = `scale × z_exaggeration` (default 1.5×).
 5. **Heightfield:** resample the DEM onto a regular grid at about 0.2–0.25 mm print spacing (the target). Light smoothing is optional.
 6. **Terrain solid:** top surface from the heightfield; z = base thickness + (elev − min_elev) × vertical scale; flat bottom; side walls. Must be watertight and manifold.
 7. **Route insert:**
@@ -79,9 +79,9 @@ A personal web app for designing 3D-printable terrain models of a location, with
 | GET | `/api/model/{id}/download?format=3mf\|stl` | Printable file |
 
 **Parameters:**
-- `width_mm` (default 180, max 250)
-- `margin_pct`
-- `z_exaggeration`
+- `width_mm` (default 180, max 250 in v1; larger sizes come with grid splitting, see section 5)
+- `margin_pct` (default 10)
+- `z_exaggeration` (default 1.5)
 - `base_mm` (default 3)
 - `route_width_mm`
 - `route_raise_mm`
@@ -106,7 +106,7 @@ README.md       written after v1
 
 ## 4. Implementation pipeline (v1)
 
-- [ ] **Step 0: Scaffolding.** Monorepo layout, Python project (uv or pip + `pyproject.toml`), Vite React TS app, lint/format (ruff, eslint/prettier), dev script that runs both.
+- [x] **Step 0: Scaffolding.** Monorepo layout, Python project (uv + `pyproject.toml`), Vite React TS app, lint/format (ruff, oxlint/prettier), dev script that runs both (`scripts/dev.sh`).
 - [ ] **Step 1: GPX module.** Parse, clean, simplify, stats (distance, D+, D−), bbox + margin. Unit tests with fixtures.
 - [ ] **Step 2: DEM module.** Find the GLO-30 tiles that cover a bbox, windowed read, mosaic, cache. Test on one known Alpine area.
 - [ ] **Step 3: Projection & resampling.** UTM conversion and a regular print grid.
@@ -119,7 +119,35 @@ README.md       written after v1
 - [ ] **Step 10: End-to-end test print.** One real GPX, printed on the A1. Tune the defaults (route width, raise, exaggeration).
 - [ ] **Step 11: README.** Setup, usage, parameters, printing tips for Bambu Studio.
 
-## 5. Backlog (after v1)
+## 5. Next feature: automatic grid splitting (v1.1)
+
+For models much larger than the A1 bed (e.g. a 600 × 400 mm map of a long race), the app splits the model into a grid of tiles that each fit on the bed, then reassemble after printing.
+
+**Behaviour**
+- The user picks the **final** model size (no 250 mm cap any more). The app computes the smallest grid (columns × rows) whose tiles fit the usable bed area (default 240 × 240 mm, leaving a margin on the 256 mm bed).
+- The user can override the grid (e.g. force 3 × 2) and see the cut lines on the 2D map and in the 3D preview.
+- Each tile is exported with its own terrain and route bodies, so every tile still prints in two colours.
+
+**Geometry**
+- Build the full model once (terrain + route), then cut it with axis-aligned planes into tiles (manifold3d `split_by_plane` / box intersections), so tiles join without steps or gaps.
+- Route pieces are cut at the same planes, so the route stays continuous across tiles.
+- Every tile gets the full base thickness and flat vertical side walls on its cut edges.
+
+**Assembly aids** (options)
+- Alignment holes for dowels or magnets in the base along the cut edges (default: 2 per shared edge, Ø 3 mm × 3 mm deep for metal pins, plus 0.15 mm clearance).
+- Tile label engraved underneath (e.g. `B2`) and a small orientation arrow.
+- Optional dovetail/puzzle joints (later).
+
+**Export**
+- One 3MF per tile, named `<model>_A1.3mf`, `<model>_A2.3mf`, … zipped together, plus an assembly diagram (PNG/SVG) showing the tile layout.
+- Each tile is placed flat and centred, ready to slice.
+
+**Steps**
+- [ ] **Step 12: Tiling core.** Grid computation, plane cuts of terrain + route, watertight checks per tile.
+- [ ] **Step 13: Assembly aids.** Alignment holes, engraved tile labels.
+- [ ] **Step 14: Tiling UI & export.** Grid overlay on the map and in the 3D preview, grid override, zipped multi-3MF export + assembly diagram.
+
+## 6. Backlog (later)
 
 - Other shapes: circle, hexagon, custom polygon
 - Manual bbox editing on the map
@@ -127,11 +155,10 @@ README.md       written after v1
 - Higher-resolution national DEMs (IGN, swisstopo, …)
 - Water bodies and rivers from OSM as a third colour
 - Several routes on one print
-- Splitting into tiles for prints larger than 256 mm
 - Strava / Komoot import
 - Global coverage
 
-## 6. Decision log
+## 7. Decision log
 
 | Date | Decision | Reason |
 |---|---|---|
@@ -139,8 +166,10 @@ README.md       written after v1
 | 2026-10-07 | Copernicus GLO-30 as the v1 DEM | Free, covers Europe, COG on AWS, no auth needed |
 | 2026-10-07 | Route as a separate body in a 3MF, sharing faces with the terrain | AMS prints both bodies together, so no clearance is needed |
 | 2026-10-07 | Rectangle only, framed automatically from the GPX | Keeps v1 small |
+| 2026-10-07 | Defaults: 180 mm width, 1.5× z-exaggeration | Confirmed by owner |
+| 2026-10-07 | Grid splitting for models larger than the bed, planned as v1.1 | Owner request; builds on the v1 pipeline |
 
-## 7. Open questions
+## 8. Open questions
 
-- Default print width: 180 mm, or the full 250 mm?
 - Preferred z-exaggeration for Alpine vs. flatter areas (to tune after the first print)
+- Tiling: alignment pins (metal dowels, magnets, or printed pins)?

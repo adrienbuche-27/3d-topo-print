@@ -1,0 +1,36 @@
+[project]
+name = "topo-print-backend"
+version = "0.1.0"
+description = "Backend for 3D Topo Print: GPX + DEM to printable terrain models"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "python-multipart>=0.0.9",
+    "gpxpy>=1.6",
+    "numpy>=1.26",
+    "scipy>=1.13",
+    "rasterio>=1.4",
+    "pyproj>=3.6",
+    "shapely>=2.0",
+    "trimesh>=4.4",
+    "manifold3d>=2.5",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "httpx>=0.27",
+    "ruff>=0.6",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
