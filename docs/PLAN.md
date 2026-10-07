@@ -107,7 +107,7 @@ README.md       written after v1
 ## 4. Implementation pipeline (v1)
 
 - [x] **Step 0: Scaffolding.** Monorepo layout, Python project (uv + `pyproject.toml`), Vite React TS app, lint/format (ruff, oxlint/prettier), dev script that runs both (`scripts/dev.sh`).
-- [ ] **Step 1: GPX module.** Parse, clean, simplify, stats (distance, D+, D−), bbox + margin. Unit tests with fixtures.
+- [x] **Step 1: GPX module.** Parse, clean, simplify, stats (distance, D+, D−), bbox + margin. Unit tests with fixtures. (`backend/app/gpx.py`, `backend/app/geo.py`; fixture `alps_loop.gpx` is a synthetic loop near Chamonix)
 - [ ] **Step 2: DEM module.** Find the GLO-30 tiles that cover a bbox, windowed read, mosaic, cache. Test on one known Alpine area.
 - [ ] **Step 3: Projection & resampling.** UTM conversion and a regular print grid.
 - [ ] **Step 4: Terrain solid.** Heightfield → watertight mesh with a base. Test: `mesh.is_watertight`, size within 256 mm.
