@@ -34,3 +34,6 @@ select = ["E", "F", "I", "B", "UP"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+    "network: downloads real elevation data (deselect with -m \"not network\")",
+]
