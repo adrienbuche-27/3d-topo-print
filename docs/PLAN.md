@@ -110,8 +110,8 @@ README.md       written after v1
 - [x] **Step 1: GPX module.** Parse, clean, simplify, stats (distance, D+, D−), bbox + margin. Unit tests with fixtures. (`backend/app/gpx.py`, `backend/app/geo.py`; fixture `alps_loop.gpx` is a synthetic loop near Chamonix)
 - [x] **Step 2: DEM module.** Find the GLO-30 tiles that cover a bbox, mosaic, cache. Test on one known Alpine area. (`backend/app/dem.py`; whole tiles are cached in `backend/.cache/dem` or `$TOPO_DEM_CACHE_DIR`; the Mont Blanc test downloads real data and is marked `network`)
 - [x] **Step 3: Projection & resampling.** UTM conversion and a regular print grid. (`backend/app/heightfield.py`; DEM read at half the node spacing with averaging, then bilinear onto grid nodes; optional Gaussian smoothing)
-- [ ] **Step 4: Terrain solid.** Heightfield → watertight mesh with a base. Test: `mesh.is_watertight`, size within 256 mm.
-- [ ] **Step 5: Route insert.** Buffered polygon → band solid → boolean ops. Test that both bodies are manifold and do not overlap.
+- [x] **Step 4: Terrain solid.** Heightfield → watertight mesh with a base. Test: `mesh.is_watertight`, size within 256 mm. (`backend/app/terrain.py`, `backend/app/mesh.py`)
+- [x] **Step 5: Route insert.** Buffered polygon → band solid → boolean ops. Test that both bodies are manifold and do not overlap. (`backend/app/route.py`; Alpe d'Huez at 0.25 mm builds in ~7 s, 1.4 M + 0.14 M triangles)
 - [ ] **Step 6: Export.** 3MF with 2 objects, STL zip, GLB. Manual check: open in Bambu Studio and assign 2 filaments.
 - [ ] **Step 7: API.** FastAPI endpoints, in-memory/disk model store, error handling (GPX outside Europe, route too big).
 - [ ] **Step 8: Frontend: upload & map.** Drag-and-drop GPX, route on a MapLibre map, bbox overlay, stats.
@@ -168,6 +168,8 @@ For models much larger than the A1 bed (e.g. a 600 × 400 mm map of a long race)
 | 2026-10-07 | Rectangle only, framed automatically from the GPX | Keeps v1 small |
 | 2026-10-07 | Defaults: 180 mm width, 1.5× z-exaggeration | Confirmed by owner |
 | 2026-10-07 | Grid splitting for models larger than the bed, planned as v1.1 | Owner request; builds on the v1 pipeline |
+| 2026-10-08 | Groove cut = band prism minus a "groove floor" solid padded 1 mm past the model edges | Avoids coplanar faces in the booleans; terrain and insert share exact faces |
+| 2026-10-08 | Alpe d'Huez GPX (owner's Strava ride) used as the real-world test route | Real hairpins, portrait frame, 1400 m of relief |
 
 ## 8. Open questions
 
