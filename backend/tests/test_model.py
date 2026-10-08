@@ -26,7 +26,7 @@ def hf(track: Track, tmp_path_factory: pytest.TempPathFactory) -> Heightfield:
     tile = tmp_path_factory.mktemp("dem") / "t.tif"
     write_tile(tile, 45, 6, 0.002)
     source = FakeSource({(45, 6): tile})
-    return build_heightfield(compute_frame(track), width_mm=120, resolution_mm=1.0, source=source)
+    return build_heightfield(compute_frame(track), size_mm=120, resolution_mm=1.0, source=source)
 
 
 def as_trimesh(vertices: np.ndarray, faces: np.ndarray) -> trimesh.Trimesh:
@@ -115,7 +115,7 @@ def test_groove_deeper_than_base_is_rejected(track: Track, hf: Heightfield) -> N
 def test_real_alpe_d_huez_model() -> None:
     track = load_gpx((FIXTURES / "Alpe_d_Huez.gpx").read_bytes())
     hf = build_heightfield(
-        compute_frame(track), width_mm=180, resolution_mm=0.5, source=CopernicusTileCache()
+        compute_frame(track), size_mm=180, resolution_mm=0.5, source=CopernicusTileCache()
     )
     parts = build_model(hf, track, ModelParams())
 
@@ -123,5 +123,7 @@ def test_real_alpe_d_huez_model() -> None:
     assert terrain.is_watertight and route.is_watertight
     assert len(parts.route.decompose()) == 1
     assert abs((parts.terrain ^ parts.route).volume()) < 1e-3
-    # Portrait frame: 180 mm wide, ~239 mm tall, still within the A1's 256 mm bed.
-    assert terrain.bounds[1][1] == pytest.approx(238.7, abs=1)
+    # Portrait frame: the longest side (north-south) is 180 mm.
+    (_, _, _), (x1, y1, _) = terrain.bounds
+    assert y1 == pytest.approx(180, abs=1e-3)
+    assert x1 == pytest.approx(180 * 3682 / 4883, abs=1)

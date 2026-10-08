@@ -55,11 +55,11 @@ A personal web app for designing 3D-printable terrain models of a location, with
 1. **GPX:** parse all tracks and segments, drop outliers, simplify (Douglas-Peucker, tolerance tied to the print resolution).
 2. **Framing:** bbox of the route plus a margin (default 10 %), expanded to the requested aspect ratio (default: fit the route).
 3. **Projection:** convert everything to the local UTM zone (metres), so distances are true and not distorted.
-4. **Scaling:** `scale = print_width_mm / bbox_width_m`. Vertical scale = `scale × z_exaggeration` (default 1.5×).
+4. **Scaling:** `scale = size_mm / max(frame_width_m, frame_height_m)`, so `size_mm` is the longest side. Vertical scale = `scale × z_exaggeration` (default 1.5×).
 5. **Heightfield:** resample the DEM onto a regular grid at about 0.2–0.25 mm print spacing (the target). Light smoothing is optional.
 6. **Terrain solid:** top surface from the heightfield; z = base thickness + (elev − min_elev) × vertical scale; flat bottom; side walls. Must be watertight and manifold.
 7. **Route insert:**
-   - Buffer the projected polyline to a 2D polygon of `route_width_mm` (default 1.6 mm, which is 4 nozzle widths).
+   - Buffer the projected polyline to a 2D polygon of `route_width_mm` (default 1.2 mm, which is 3 nozzle widths).
    - Insert = vertical prism of that polygon, intersected with the band between `surface − groove_depth` and `surface + route_raise`.
      - Defaults: groove depth 1.0 mm, raise 0.6 mm.
      - The band is built as Solid(surface + raise) − Solid(surface − depth).
@@ -79,11 +79,11 @@ A personal web app for designing 3D-printable terrain models of a location, with
 | GET | `/api/model/{id}/download?format=3mf\|stl` | Printable file |
 
 **Parameters:**
-- `width_mm` (default 180, max 250 in v1; larger sizes come with grid splitting, see section 5)
-- `margin_pct` (default 10)
+- `size_mm`: longest side of the model (default 180, max 250 in v1; larger sizes come with grid splitting, see section 5). A larger print is the way to separate tight hairpins.
+- `margin_pct`: map area around the route, as a % of the route's larger extent (default 10). A larger margin widens the map but shrinks the scale.
 - `z_exaggeration` (default 1.5)
 - `base_mm` (default 3)
-- `route_width_mm`
+- `route_width_mm` (default 1.2)
 - `route_raise_mm`
 - `groove_depth_mm`
 - `resolution_mm`
@@ -115,7 +115,7 @@ README.md       written after v1
 - [ ] **Step 6: Export.** 3MF with 2 objects, STL zip, GLB. Manual check: open in Bambu Studio and assign 2 filaments.
 - [ ] **Step 7: API.** FastAPI endpoints, in-memory/disk model store, error handling (GPX outside Europe, route too big).
 - [ ] **Step 8: Frontend: upload & map.** Drag-and-drop GPX, route on a MapLibre map, bbox overlay, stats.
-- [ ] **Step 9: Frontend: parameters & 3D preview.** Parameter form, "Generate" button, three.js preview with 2 colours, download buttons.
+- [ ] **Step 9: Frontend: parameters & 3D preview.** Parameter form (at least model size, map margin, z-exaggeration, route width), "Generate" button, three.js preview with 2 colours, download buttons.
 - [ ] **Step 10: End-to-end test print.** One real GPX, printed on the A1. Tune the defaults (route width, raise, exaggeration).
 - [ ] **Step 11: README.** Setup, usage, parameters, printing tips for Bambu Studio.
 
@@ -169,7 +169,10 @@ For models much larger than the A1 bed (e.g. a 600 × 400 mm map of a long race)
 | 2026-10-07 | Defaults: 180 mm width, 1.5× z-exaggeration | Confirmed by owner |
 | 2026-10-07 | Grid splitting for models larger than the bed, planned as v1.1 | Owner request; builds on the v1 pipeline |
 | 2026-10-08 | Groove cut = band prism minus a "groove floor" solid padded 1 mm past the model edges | Avoids coplanar faces in the booleans; terrain and insert share exact faces |
-| 2026-10-08 | Alpe d'Huez GPX (owner's Strava ride) used as the real-world test route | Real hairpins, portrait frame, 1400 m of relief |
+| 2026-10-08 | Model size applies to the longest side (default 180 mm) | Portrait frames could otherwise exceed the bed |
+| 2026-10-08 | Route width default 1.2 mm (was 1.6) | Tight hairpins merged at 1.6 mm |
+| 2026-10-08 | UI exposes size, margin, z-exaggeration (default 1.5×) and route width | Owner request |
+| 2026-10-08 | Alpe d'Huez GPX (owner's Strava ride, stripped to position + elevation) used as the real-world test route | Real hairpins, portrait frame, 1400 m of relief |
 
 ## 8. Open questions
 

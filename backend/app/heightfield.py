@@ -58,20 +58,24 @@ class Heightfield:
 
 def build_heightfield(
     frame: Frame,
-    width_mm: float,
+    size_mm: float,
     resolution_mm: float = 0.25,
     smooth_sigma_cells: float = 0.0,
     source: TileSource | None = None,
 ) -> Heightfield:
     """Sample the terrain of `frame` on a grid with ~`resolution_mm` print spacing.
 
+    `size_mm` is the length of the model's longest side, so the model always
+    fits a square print bed of that size whatever the shape of the frame.
+
     `smooth_sigma_cells` optionally applies a Gaussian blur (in grid cells) to
     soften DEM noise such as trees and buildings in the surface model.
     """
-    if width_mm <= 0 or resolution_mm <= 0:
-        raise ValueError("width_mm and resolution_mm must be positive")
+    if size_mm <= 0 or resolution_mm <= 0:
+        raise ValueError("size_mm and resolution_mm must be positive")
 
-    scale = width_mm / frame.width_m
+    scale = size_mm / max(frame.width_m, frame.height_m)
+    width_mm = frame.width_m * scale
     height_mm = frame.height_m * scale
     cols = max(round(width_mm / resolution_mm), 1) + 1
     rows = max(round(height_mm / resolution_mm), 1) + 1

@@ -15,7 +15,7 @@ from .mesh import grid_solid, to_manifold
 class ModelParams:
     base_mm: float = 3.0  # thickness under the lowest point of the terrain
     z_exaggeration: float = 1.5
-    route_width_mm: float = 1.6
+    route_width_mm: float = 1.2
     route_raise_mm: float = 0.6  # how far the route stands above the terrain
     groove_depth_mm: float = 1.0  # how deep the route sits into the terrain
 
