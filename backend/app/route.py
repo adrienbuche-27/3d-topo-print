@@ -26,6 +26,9 @@ from .terrain import ModelParams, Surface, terrain_solid, terrain_surface
 SIMPLIFY_TOLERANCE_MM = 0.05
 # How far helper solids reach past the model, so their faces never coincide with its walls.
 OVERHANG_MM = 1.0
+# Booleans can leave slivers with vertices < 0.1 µm apart, which slicers merge into
+# degenerate triangles. Collapsing edges below 1 µm removes them without visible change.
+CLEAN_TOLERANCE_MM = 1e-3
 
 
 class RouteError(ValueError):
@@ -92,8 +95,8 @@ def build_parts(surface: Surface, footprint: shapely.Geometry, params: ModelPara
     prism = Manifold.extrude(_cross_section(footprint), top + 2 * o).translate((0, 0, -2 * o))
     cutter = prism - groove_floor  # everything above the groove floor, inside the band
 
-    route = cutter ^ raised
-    terrain = terrain - cutter
+    route = (cutter ^ raised).simplify(CLEAN_TOLERANCE_MM)
+    terrain = (terrain - cutter).simplify(CLEAN_TOLERANCE_MM)
     if route.is_empty():
         raise RouteError("The route insert is empty.")
     return ModelParts(terrain=terrain, route=route)

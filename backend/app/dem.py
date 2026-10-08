@@ -2,8 +2,8 @@
 
 GLO-30 is split into 1° x 1° Cloud-Optimized GeoTIFFs in a public AWS bucket.
 Tiles are downloaded once into a local cache, then the requested bbox is
-mosaicked into a single WGS84 grid. Tiles that do not exist (open sea) are
-remembered in the cache and filled with sea level (0 m).
+mosaicked into a single WGS84 grid. Tiles absent from the official tile list
+(open sea) are filled with sea level (0 m).
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ from rasterio.crs import CRS
 from rasterio.warp import Resampling, reproject
 
 COPERNICUS_URL = "https://copernicus-dem-30m.s3.amazonaws.com/{name}/{name}.tif"
+COPERNICUS_TILE_LIST_URL = "https://copernicus-dem-30m.s3.amazonaws.com/tileList.txt"
 DEFAULT_CACHE_DIR = Path(__file__).resolve().parents[1] / ".cache" / "dem"
 WGS84 = CRS.from_epsg(4326)
 
@@ -79,45 +80,57 @@ def tiles_for_bbox(bbox: tuple[float, float, float, float]) -> list[tuple[int, i
 
 
 class CopernicusTileCache:
-    """Downloads GLO-30 tiles on first use and keeps them on disk."""
+    """Downloads GLO-30 tiles on first use and keeps them on disk.
+
+    Which tiles exist is decided by the official tile list, never by a failed
+    download, so a network hiccup cannot turn land into sea.
+    """
 
     def __init__(
         self,
         cache_dir: Path | None = None,
         url_template: str = COPERNICUS_URL,
+        tile_list_url: str = COPERNICUS_TILE_LIST_URL,
         retries: int = 3,
     ) -> None:
         env_dir = os.environ.get("TOPO_DEM_CACHE_DIR")
         self.cache_dir = Path(cache_dir or env_dir or DEFAULT_CACHE_DIR)
         self.url_template = url_template
+        self.tile_list_url = tile_list_url
         self.retries = retries
+        self._tiles: set[str] | None = None
 
     def get(self, lat: int, lon: int) -> Path | None:
         name = tile_name(lat, lon)
         path = self.cache_dir / f"{name}.tif"
-        missing_marker = self.cache_dir / f"{name}.missing"
         if path.exists():
             return path
-        if missing_marker.exists():
-            return None
+        if name not in self.available_tiles():
+            return None  # open sea: GLO-30 has no tile here
+        self._download(self.url_template.format(name=name), path)
+        return path
 
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-        url = self.url_template.format(name=name)
-        for attempt in range(self.retries):
-            try:
-                self._download(url, path)
-                return path
-            except urllib.error.HTTPError as exc:
-                if exc.code == 404:  # no land in this tile
-                    missing_marker.touch()
-                    return None
-                error: Exception = exc
-            except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
-                error = exc
-            time.sleep(2**attempt)
-        raise DemError(f"Could not download elevation tile {name}: {error}")
+    def available_tiles(self) -> set[str]:
+        if self._tiles is None:
+            path = self.cache_dir / "tileList.txt"
+            if not path.exists():
+                self._download(self.tile_list_url, path)
+            self._tiles = {line.strip() for line in path.read_text().splitlines() if line.strip()}
+        return self._tiles
 
     def _download(self, url: str, path: Path) -> None:
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        error: Exception | None = None
+        for attempt in range(self.retries):
+            try:
+                self._download_once(url, path)
+                return
+            except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+                error = exc
+                time.sleep(2**attempt)
+        raise DemError(f"Could not download {url}: {error}")
+
+    def _download_once(self, url: str, path: Path) -> None:
         # Write to a temporary file first so an interrupted download never looks cached.
         with urllib.request.urlopen(url, timeout=60) as response:
             fd, tmp = tempfile.mkstemp(dir=self.cache_dir, suffix=".part")

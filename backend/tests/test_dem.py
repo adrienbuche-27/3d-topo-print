@@ -89,24 +89,44 @@ def test_too_large_area_is_rejected() -> None:
         read_dem((0.0, 40.0, 10.0, 50.0), source=source)
 
 
+def offline_cache(tmp_path: Path, tiles: list[str]) -> CopernicusTileCache:
+    (tmp_path / "tileList.txt").write_text("\n".join(tiles) + "\n")
+    return CopernicusTileCache(
+        cache_dir=tmp_path,
+        url_template="http://invalid.invalid/{name}",
+        tile_list_url="http://invalid.invalid/tileList.txt",
+        retries=1,
+    )
+
+
 def test_cache_returns_cached_tile_without_network(tmp_path: Path) -> None:
+    cache = offline_cache(tmp_path, [tile_name(45, 6)])
     cached = tmp_path / f"{tile_name(45, 6)}.tif"
     cached.write_bytes(b"cached")
-    (tmp_path / f"{tile_name(0, -30)}.missing").touch()
-    cache = CopernicusTileCache(cache_dir=tmp_path, url_template="http://invalid.invalid/{name}")
 
     assert cache.get(45, 6) == cached
-    assert cache.get(0, -30) is None
+
+
+def test_cache_tiles_absent_from_the_list_are_sea(tmp_path: Path) -> None:
+    cache = offline_cache(tmp_path, [tile_name(45, 6)])
+    assert cache.get(38, -30) is None
+
+
+def test_cache_failed_download_is_an_error_not_sea(tmp_path: Path) -> None:
+    # A land tile that cannot be downloaded must never be silently flattened.
+    cache = offline_cache(tmp_path, [tile_name(45, 6)])
+    with pytest.raises(DemError):
+        cache.get(45, 6)
+    assert not list(tmp_path.glob("*.tif"))
 
 
 @pytest.mark.network
 def test_real_copernicus_mont_blanc(tmp_path: Path) -> None:
-    """Downloads one real GLO-30 tile (~30 MB) and checks the Mont Blanc summit."""
+    """Downloads one real GLO-30 tile (~40 MB) and checks the Mont Blanc summit."""
     cache = CopernicusTileCache(cache_dir=tmp_path)
     dem = read_dem((6.84, 45.82, 6.89, 45.85), source=cache)
 
     # Mont Blanc is 4806 m; GLO-30 is a surface model at 30 m, so allow some slack.
     assert 4_700 < dem.data.max() < 4_850
-    # Sea tile in the Atlantic is reported as missing and remembered.
+    # A tile in the open Atlantic is not in the official list.
     assert cache.get(38, -30) is None
-    assert (tmp_path / f"{tile_name(38, -30)}.missing").exists()

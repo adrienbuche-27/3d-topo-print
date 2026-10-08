@@ -112,7 +112,7 @@ README.md       written after v1
 - [x] **Step 3: Projection & resampling.** UTM conversion and a regular print grid. (`backend/app/heightfield.py`; DEM read at half the node spacing with averaging, then bilinear onto grid nodes; optional Gaussian smoothing)
 - [x] **Step 4: Terrain solid.** Heightfield → watertight mesh with a base. Test: `mesh.is_watertight`, size within 256 mm. (`backend/app/terrain.py`, `backend/app/mesh.py`)
 - [x] **Step 5: Route insert.** Buffered polygon → band solid → boolean ops. Test that both bodies are manifold and do not overlap. (`backend/app/route.py`; Alpe d'Huez at 0.25 mm builds in ~7 s, 1.4 M + 0.14 M triangles)
-- [ ] **Step 6: Export.** 3MF with 2 objects, STL zip, GLB. Manual check: open in Bambu Studio and assign 2 filaments.
+- [x] **Step 6: Export.** 3MF with 2 objects, STL zip, GLB. Manual check: open in Bambu Studio and assign 2 filaments. (`backend/app/export.py`; 3MF = one assembly of two named parts, validated with lib3mf; Alpe d'Huez 3MF is 8.5 MB. **Bambu Studio check pending with the owner.**)
 - [ ] **Step 7: API.** FastAPI endpoints, in-memory/disk model store, error handling (GPX outside Europe, route too big).
 - [ ] **Step 8: Frontend: upload & map.** Drag-and-drop GPX, route on a MapLibre map, bbox overlay, stats.
 - [ ] **Step 9: Frontend: parameters & 3D preview.** Parameter form (at least model size, map margin, z-exaggeration, route width), "Generate" button, three.js preview with 2 colours, download buttons.
@@ -172,6 +172,8 @@ For models much larger than the A1 bed (e.g. a 600 × 400 mm map of a long race)
 | 2026-10-08 | Model size applies to the longest side (default 180 mm) | Portrait frames could otherwise exceed the bed |
 | 2026-10-08 | Route width default 1.2 mm (was 1.6) | Tight hairpins merged at 1.6 mm |
 | 2026-10-08 | UI exposes size, margin, z-exaggeration (default 1.5×) and route width | Owner request |
+| 2026-10-08 | 3MF written by hand as one components object (`terrain` + `route`), 6-decimal coordinates | Slicers load it as one object with two parts; 4 decimals merged boolean slivers into degenerate faces |
+| 2026-10-08 | Sea tiles decided by the official GLO-30 `tileList.txt`, never by a failed download | A transient 404 had flattened a land tile in a test run |
 | 2026-10-08 | Alpe d'Huez GPX (owner's Strava ride, stripped to position + elevation) used as the real-world test route | Real hairpins, portrait frame, 1400 m of relief |
 
 ## 8. Open questions
