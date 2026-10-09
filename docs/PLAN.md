@@ -161,7 +161,7 @@ For models much larger than the A1 bed (e.g. a 600 × 400 mm map of a long race)
 - Each tile is placed flat and centred, ready to slice.
 
 **Steps**
-- [ ] **Step 12: Tiling core.** Grid computation, plane cuts of terrain + route, watertight checks per tile.
+- [x] **Step 12: Tiling core.** (`backend/app/tiles.py`) The elevation grid of the whole model is computed once; each tile takes a slice of it, sharing its edge nodes with its neighbours, and is built like a small model (blended or inlay) with the route clipped to the tile. Building per tile keeps memory bounded (a 400 mm model builds in 15–25 s). Inlay tiles cut their pieces from the whole model's heights, so piece boundaries agree across tiles. Labels A1… (rows from the north, columns from the west).
 - [ ] **Step 13: Assembly aids.** Alignment holes, engraved tile labels.
 - [ ] **Step 14: Tiling UI & export.** Grid overlay on the map and in the 3D preview, grid override, zipped multi-3MF export + assembly diagram.
 

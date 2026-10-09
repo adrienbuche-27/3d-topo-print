@@ -7,7 +7,7 @@ import shapely
 from app.dem import CopernicusTileCache
 from app.gpx import Track, compute_frame, load_gpx
 from app.heightfield import Heightfield, build_heightfield
-from app.inlay import _SurfaceHeight, build_fit_test, build_inlay, cut_labels, split_regions
+from app.inlay import SurfaceHeight, build_fit_test, build_inlay, cut_labels, split_regions
 from app.mesh import to_trimesh
 from app.route import RouteError, route_centerlines, route_footprint
 from app.terrain import ModelParams, Surface, terrain_surface
@@ -60,7 +60,7 @@ def test_regions_are_cut_square_and_a_road_ridden_twice_counts_once() -> None:
     # Plane rising 1 mm per 10 mm along x.
     xs = np.linspace(0, 100, 101)
     ys = np.linspace(20, 0, 21)
-    height = _SurfaceHeight(Surface(xs=xs, ys=ys, z=np.tile(xs / 10, (21, 1))))
+    height = SurfaceHeight(Surface(xs=xs, ys=ys, z=np.tile(xs / 10, (21, 1))))
     params = ModelParams(route_width_mm=1.6, inlay_piece_height_mm=2.0)
 
     up = shapely.LineString([(5, 10), (95, 10)])

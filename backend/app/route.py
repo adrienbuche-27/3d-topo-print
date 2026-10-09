@@ -99,8 +99,17 @@ def raised_solid(surface: Surface, raise_mm: float) -> Manifold:
     return to_manifold(*grid_solid(surface.xs, surface.ys, surface.z + raise_mm))
 
 
-def build_parts(surface: Surface, footprint: shapely.Geometry, params: ModelParams) -> ModelParts:
-    """Cut the route groove into the terrain and build the matching insert."""
+def build_parts(
+    surface: Surface,
+    footprint: shapely.Geometry,
+    params: ModelParams,
+    require_route: bool = True,
+) -> ModelParts:
+    """Cut the route groove into the terrain and build the matching insert.
+
+    With `require_route=False` (a tile of a split model), a footprint that misses
+    the surface gives an empty route instead of an error.
+    """
     if params.groove_depth_mm >= params.base_mm:
         raise RouteError("The groove must be shallower than the base thickness.")
 
@@ -116,7 +125,7 @@ def build_parts(surface: Surface, footprint: shapely.Geometry, params: ModelPara
 
     route = (cutter ^ raised).simplify(CLEAN_TOLERANCE_MM)
     terrain = (terrain - cutter).simplify(CLEAN_TOLERANCE_MM)
-    if route.is_empty():
+    if route.is_empty() and require_route:
         raise RouteError("The route insert is empty.")
     return ModelParts(terrain=terrain, route=route)
 

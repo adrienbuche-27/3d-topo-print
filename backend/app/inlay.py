@@ -60,7 +60,7 @@ class InlayParts:
     pieces: list[InlayPiece]
 
 
-class _SurfaceHeight:
+class SurfaceHeight:
     """Terrain height (print mm) at arbitrary x/y."""
 
     def __init__(self, surface: Surface) -> None:
@@ -91,7 +91,7 @@ def cut_labels(xy: np.ndarray, z: np.ndarray, piece_height: float) -> np.ndarray
 def split_regions(
     footprint: shapely.Geometry,
     lines: list[LineString],
-    height: _SurfaceHeight,
+    height: SurfaceHeight,
     params: ModelParams,
 ) -> list[shapely.Polygon]:
     """Split the route band into regions covering at most `inlay_piece_height_mm` of relief.
@@ -130,11 +130,13 @@ def split_regions(
     for value in np.unique(label):
         group = shapely.unary_union([cells.geoms[i] for i in np.flatnonzero(label == value)])
         part = group.intersection(footprint)
-        regions.extend(g for g in getattr(part, "geoms", [part]) if g.geom_type == "Polygon")
+        regions.extend(
+            g for g in getattr(part, "geoms", [part]) if g.geom_type == "Polygon" and not g.is_empty
+        )
     return regions
 
 
-def _min_height(region: shapely.Polygon, height: _SurfaceHeight, surface: Surface) -> float:
+def _min_height(region: shapely.Polygon, height: SurfaceHeight, surface: Surface) -> float:
     """Lowest terrain height over a region: grid nodes inside it plus its outline."""
     x0, y0, x1, y1 = region.bounds
     xs = surface.xs[(surface.xs >= x0) & (surface.xs <= x1)]
@@ -152,14 +154,21 @@ def build_inlay(
     footprint: shapely.Geometry,
     lines: list[LineString],
     params: ModelParams,
+    require_route: bool = True,
+    height: SurfaceHeight | None = None,
 ) -> InlayParts:
-    """Terrain with stepped slots, and flat-bottomed route pieces that fit them."""
+    """Terrain with stepped slots, and flat-bottomed route pieces that fit them.
+
+    With `require_route=False` (a tile of a split model), a tile without route
+    gives no pieces instead of an error. A tile also passes the `height` of the
+    whole model, so pieces are cut at the same places in every tile.
+    """
     if params.groove_depth_mm >= params.base_mm:
         raise RouteError("The groove must be shallower than the base thickness.")
     if params.inlay_piece_height_mm <= 0:
         raise RouteError("The piece height must be positive.")
 
-    height = _SurfaceHeight(surface)
+    height = height or SurfaceHeight(surface)
     terrain = terrain_solid(surface)
     raised = raised_solid(surface, params.route_raise_mm)
     top = float(surface.z.max()) + params.route_raise_mm + OVERHANG_MM
@@ -179,9 +188,11 @@ def build_inlay(
             if part.volume() >= MIN_PIECE_VOLUME_MM3:
                 pieces.append(InlayPiece(solid=part.simplify(CLEAN_TOLERANCE_MM), bottom_z=bottom))
 
-    if not pieces:
+    if not pieces and require_route:
         raise RouteError("The route produced no printable inlay pieces.")
-    terrain = (terrain - Manifold.batch_boolean(cutters, OpType.Add)).simplify(CLEAN_TOLERANCE_MM)
+    if cutters:
+        terrain = terrain - Manifold.batch_boolean(cutters, OpType.Add)
+    terrain = terrain.simplify(CLEAN_TOLERANCE_MM)
     return InlayParts(terrain=terrain, pieces=pieces)
 
 

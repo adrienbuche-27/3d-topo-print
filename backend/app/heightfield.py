@@ -20,8 +20,10 @@ from .dem import TileSource, read_dem
 from .gpx import Frame
 
 METRES_PER_DEG_LAT = 111_320.0
-# Keeps meshes manageable: 1000 x 1000 nodes is 250 mm at 0.25 mm spacing.
-MAX_NODES = 4_000_000
+# Limit of the elevation grid (~100 MB of float32). Meshes of models larger than the
+# print bed are built tile by tile, so only this grid covers the whole model:
+# 25 M nodes is e.g. 1000 x 625 mm at 0.2 mm, or 1250 x 1250 mm at 0.25 mm.
+MAX_NODES = 25_000_000
 
 
 @dataclass
