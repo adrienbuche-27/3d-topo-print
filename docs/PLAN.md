@@ -162,7 +162,7 @@ For models much larger than the A1 bed (e.g. a 600 × 400 mm map of a long race)
 
 **Steps**
 - [x] **Step 12: Tiling core.** (`backend/app/tiles.py`) The elevation grid of the whole model is computed once; each tile takes a slice of it, sharing its edge nodes with its neighbours, and is built like a small model (blended or inlay) with the route clipped to the tile. Building per tile keeps memory bounded (a 400 mm model builds in 15–25 s). Inlay tiles cut their pieces from the whole model's heights, so piece boundaries agree across tiles. Labels A1… (rows from the north, columns from the west).
-- [ ] **Step 13: Assembly aids.** Alignment holes, engraved tile labels.
+- [x] **Step 13: Assembly aids.** Printed pins (owner's choice): Ø3 mm pins with a flat side to print lying down, two per shared edge (one on edges < 40 mm), in horizontal holes 5.5 mm deep with the inlay clearance, centred 2.6 mm above the bed. Split models use a 6 mm minimum base so the holes fit everywhere below the grooves. Tile label + north arrow engraved 0.6 mm deep underneath, mirrored to read from below (small stroke font, `engrave.py`).
 - [ ] **Step 14: Tiling UI & export.** Grid overlay on the map and in the 3D preview, grid override, zipped multi-3MF export + assembly diagram.
 
 ## 7. Backlog (later)
@@ -200,6 +200,8 @@ For models much larger than the A1 bed (e.g. a 600 × 400 mm map of a long race)
 | 2026-10-09 | Bambu project 3MF built from a reference project saved by the owner | Bambu Studio only loads project config naming its own system presets; values must match the installed version |
 | 2026-10-09 | Bambu project keeps the owner's 4 filaments; terrain = slot 1, route = slot 2 | Re-indexing all per-filament arrays of the config is fragile; Bambu fills the rest from its system presets |
 | 2026-10-09 | Fit test result: 0.15 mm clearance is right on the owner's A1 | Kept as default |
+| 2026-10-09 | Grid splitting: printed pins, one Bambu project with one plate per tile, engraved labels, 240 mm max tile | Owner's choices |
+| 2026-10-09 | Split models built tile by tile from one whole-model elevation grid | Seamless joins and bounded memory for large models |
 | 2026-10-09 | Route cutter on the elevation profile (by distance), before grid splitting | Owner's choice of next feature; handles on a profile are more precise than on the map |
 | 2026-10-09 | Owner validated the app and the Bambu project (no warning with File → Open Project) | v1 feature set complete; interface polish deferred |
 | 2026-10-09 | No geographic restriction in the API | Copernicus GLO-30 is global; "Europe" was only the test scope |

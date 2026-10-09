@@ -121,3 +121,50 @@ def test_tile_without_route(surface: Surface, lines: list[shapely.LineString]) -
     with_route = {t.label for t in tiles if t.route is not None}
     assert with_route == {"B1"}
     assert all(to_trimesh(t.terrain).is_watertight for t in tiles)
+
+
+@pytest.fixture(scope="module")
+def split_surface(hf: Heightfield) -> Surface:
+    from dataclasses import replace
+
+    from app.tiles import MIN_SPLIT_BASE_MM
+
+    return terrain_surface(hf, replace(PARAMS, base_mm=MIN_SPLIT_BASE_MM))
+
+
+def test_pin_holes_on_every_shared_edge(split_surface: Surface) -> None:
+    from app.tiles import pin_holes
+
+    tiles = build_tiles(split_surface, shapely.Polygon(), [], PARAMS, "blended", cols=2, rows=2)
+    holes = pin_holes(tiles)
+    # 2 x 2 tiles share 4 edges, each ~50 mm long: two pins per edge.
+    assert len(holes) == 8
+    assert sum(h.axis == "x" for h in holes) == 4
+
+
+def test_assembly_aids(split_surface: Surface, footprint: shapely.Geometry) -> None:
+    from app.tiles import PIN_CENTER_Z_MM, _hole_solid, add_assembly_aids, pin_solid
+
+    tiles = build_tiles(split_surface, footprint, [], PARAMS, "blended", cols=2, rows=1)
+    before = [t.terrain.volume() for t in tiles]
+    holes = add_assembly_aids(tiles, clearance_mm=0.15)
+    assert len(holes) == 2
+
+    for tile, volume in zip(tiles, before, strict=True):
+        assert to_trimesh(tile.terrain).is_watertight
+        assert tile.terrain.volume() < volume
+        # The label is engraved under the tile: the bottom layer has less material.
+        x0, y0, x1, y1 = tile.bounds_mm
+        assert tile.terrain.slice(0.3).area() < (x1 - x0) * (y1 - y0) - 20
+        assert tile.terrain.slice(1.0).area() == pytest.approx(
+            (x1 - x0) * (y1 - y0) - 2 * 3.3 * 5.5, rel=0.01
+        )
+
+    # A pin sitting in its hole touches neither tile (clearance) and reaches into both.
+    hole = holes[0]
+    pin = pin_solid()
+    x0, _, _, x1, _, _ = pin.bounding_box()
+    centred = pin.translate((hole.x - (x0 + x1) / 2, hole.y, PIN_CENTER_Z_MM - 1.2))
+    for tile in tiles:
+        assert abs((tile.terrain ^ centred).volume()) < 1e-6
+        assert (_hole_solid(hole, 0.15) ^ centred).volume() > 20
