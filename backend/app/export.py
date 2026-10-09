@@ -27,6 +27,9 @@ TERRAIN_COLOR = (214, 208, 196, 255)
 ROUTE_COLOR = (228, 87, 46, 255)
 # Space between the terrain and the route pieces when both are laid out.
 LAYOUT_GAP_MM = 10.0
+# Filament slots in the Bambu Studio project (1-based, as in the AMS).
+TERRAIN_FILAMENT = 1
+ROUTE_FILAMENT = 2
 
 _CONTENT_TYPES = """<?xml version="1.0" encoding="UTF-8"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
@@ -50,6 +53,11 @@ class PrintObject:
     offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
     color: tuple[int, int, int, int] = TERRAIN_COLOR
     part_colors: dict[str, tuple[int, int, int, int]] = field(default_factory=dict)
+    # Bambu Studio project only: plate number, filament slots and per-object settings.
+    plate: int = 1
+    filament: int = 1
+    part_filaments: dict[str, int] = field(default_factory=dict)
+    settings: dict[str, str] = field(default_factory=dict)
 
 
 def blended_layout(parts: ModelParts, name: str = "Topo print") -> list[PrintObject]:
@@ -58,6 +66,9 @@ def blended_layout(parts: ModelParts, name: str = "Topo print") -> list[PrintObj
             name=name,
             parts=[("terrain", parts.terrain), ("route", parts.route)],
             part_colors={"route": ROUTE_COLOR},
+            part_filaments={"route": ROUTE_FILAMENT},
+            # Purge the colour changes into the terrain's hidden infill, not only the tower.
+            settings={"flush_into_infill": "1"},
         )
     ]
 
@@ -72,6 +83,8 @@ def inlay_layout(parts: InlayParts) -> list[PrintObject]:
             parts=[(f"piece {i}", p.on_bed()) for i, p in enumerate(parts.pieces, start=1)],
             offset=(x1 + LAYOUT_GAP_MM, 0.0, 0.0),
             color=ROUTE_COLOR,
+            plate=2,
+            filament=ROUTE_FILAMENT,
         ),
     ]
 

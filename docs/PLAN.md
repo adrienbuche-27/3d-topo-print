@@ -120,7 +120,7 @@ README.md       written after v1
 - [x] **Step 5: Route insert.** Buffered polygon → band solid → boolean ops. Test that both bodies are manifold and do not overlap. (`backend/app/route.py`; Alpe d'Huez at 0.25 mm builds in ~7 s, 1.4 M + 0.14 M triangles)
 - [x] **Step 6: Export.** 3MF with 2 objects, STL zip, GLB. Manual check: open in Bambu Studio and assign 2 filaments. (`backend/app/export.py`; 3MF = one assembly of two named parts, validated with lib3mf; Alpe d'Huez 3MF is 8.5 MB. Bambu Studio check done: loads as one object with two parts, slices without errors, but warns about the missing project config.)
 - [x] **Step 6b: Inlay mode and fit test.** Route printed separately in flat-bottomed pieces (see 3.2 item 8). Pieces are split along the route (Voronoi partition of centreline samples) so cuts run square across the road; a road ridden twice counts once. Alpe d'Huez: 16 pieces, 2–9 mm tall, or 1 piece of 65 mm.
-- [ ] **Step 6c: Bambu Studio project 3MF.** No config warning on import, terrain and route pieces on separate plates, filaments preset. Needs a reference project saved by the owner's Bambu Studio (version + A1 presets).
+- [x] **Step 6c: Bambu Studio project 3MF.** (`backend/app/bambu/`) Same structure as a project saved by Bambu Studio 2.8.2.61: production extension (one model file per object), `model_settings.config` (parts, filaments, plates) and the owner's `project_settings.config` as template (A1, 0.4 nozzle, 0.20 mm Standard, 4 AMS filaments). Terrain on filament 1, route on filament 2; inlay: terrain on plate 1, pieces on plate 2; blended: flush into the terrain's infill. **Check pending with the owner: no warning on import.**
 - [ ] **Step 7: API.** FastAPI endpoints, in-memory/disk model store, error handling (GPX outside Europe, route too big).
 - [ ] **Step 8: Frontend: upload & map.** Drag-and-drop GPX, route on a MapLibre map, bbox overlay, stats.
 - [ ] **Step 9: Frontend: parameters & 3D preview.** Parameter form (at least model size, map margin, z-exaggeration, route width), "Generate" button, three.js preview with 2 colours, download buttons.
@@ -185,6 +185,7 @@ For models much larger than the A1 bed (e.g. a 600 × 400 mm map of a long race)
 | 2026-10-09 | Two print modes kept: blended and inlay | Blended wasted ~60 g purge out of 350 g; the right choice depends on the project's scale |
 | 2026-10-09 | Inlay pieces cut along contour bands, flat bottoms, 0.15 mm clearance, 1.6 mm width | A route following the terrain cannot print alone; short flat-bottomed pieces print without supports |
 | 2026-10-09 | Bambu project 3MF built from a reference project saved by the owner | Bambu Studio only loads project config naming its own system presets; values must match the installed version |
+| 2026-10-09 | Bambu project keeps the owner's 4 filaments; terrain = slot 1, route = slot 2 | Re-indexing all per-filament arrays of the config is fragile; Bambu fills the rest from its system presets |
 | 2026-10-08 | Alpe d'Huez GPX (owner's Strava ride, stripped to position + elevation) used as the real-world test route | Real hairpins, portrait frame, 1400 m of relief |
 
 ## 8. Open questions
