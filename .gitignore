@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# DEM tiles and generated models
+backend/.cache/
+backend/.data/
+
+# Node
+node_modules/
+dist/
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/

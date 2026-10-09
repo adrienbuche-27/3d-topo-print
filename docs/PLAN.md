@@ -34,7 +34,7 @@ A personal web app for designing 3D-printable terrain models of a location, with
 ┌───────────────────────────────────▼─────────── Backend (Python + FastAPI) ────┐
 │  gpx.py      parse GPX (gpxpy), simplify, compute bbox + margin              │
 │  dem.py      fetch Copernicus GLO-30 tiles (COG, windowed reads), local cache│
-│  project.py  WGS84 → local UTM (pyproj), resample to the print grid          │
+│  heightfield.py  WGS84 → local UTM (pyproj), resample to the print grid      │
 │  terrain.py  heightfield → watertight solid with a flat base                 │
 │  route.py    route → 2D buffered polygon (shapely) → insert solid            │
 │  boolean.py  terrain − insert (manifold3d through trimesh)                   │
@@ -55,16 +55,20 @@ A personal web app for designing 3D-printable terrain models of a location, with
 1. **GPX:** parse all tracks and segments, drop outliers, simplify (Douglas-Peucker, tolerance tied to the print resolution).
 2. **Framing:** bbox of the route plus a margin (default 10 %), expanded to the requested aspect ratio (default: fit the route).
 3. **Projection:** convert everything to the local UTM zone (metres), so distances are true and not distorted.
-4. **Scaling:** `scale = print_width_mm / bbox_width_m`. Vertical scale = `scale × z_exaggeration` (default 1.5–2× for prints).
+4. **Scaling:** `scale = size_mm / max(frame_width_m, frame_height_m)`, so `size_mm` is the longest side. Vertical scale = `scale × z_exaggeration` (default 1.5×).
 5. **Heightfield:** resample the DEM onto a regular grid at about 0.2–0.25 mm print spacing (the target). Light smoothing is optional.
 6. **Terrain solid:** top surface from the heightfield; z = base thickness + (elev − min_elev) × vertical scale; flat bottom; side walls. Must be watertight and manifold.
 7. **Route insert:**
-   - Buffer the projected polyline to a 2D polygon of `route_width_mm` (default 1.6 mm, which is 4 nozzle widths).
+   - Buffer the projected polyline to a 2D polygon of `route_width_mm` (default 1.2 mm, which is 3 nozzle widths).
    - Insert = vertical prism of that polygon, intersected with the band between `surface − groove_depth` and `surface + route_raise`.
      - Defaults: groove depth 1.0 mm, raise 0.6 mm.
      - The band is built as Solid(surface + raise) − Solid(surface − depth).
    - Terrain final = Terrain − Insert. The two bodies share faces exactly. This works because the AMS prints them together, so no clearance is needed.
-8. **Export:**
+8. **Print modes** (chosen per project, depending on scale):
+   - **Blended:** route and terrain printed together with the AMS (steps 7 above). Simple, but costly in purge filament: about 60 g of purge for a 350 g model in the first test.
+   - **Inlay** (`backend/app/inlay.py`): printed separately, then assembled. Walking along the route, a new piece starts each time the terrain under it has changed by `inlay_piece_height_mm` (default 6 mm); each point of the route band belongs to its nearest centreline point, so cuts run square across the road. Each region is a piece with a flat bottom, so it prints flat on the bed without supports. The terrain gets a slot per band with a matching flat floor, so the slot floor steps up the mountain. Pieces are `inlay_clearance_mm` (default 0.15) smaller than their slot on every side. A very large piece height gives one single full-height piece.
+   - **Fit test:** a 40 × 24 mm block on a slope with an S-shaped route over two bands, to tune the clearance on the printer before a big print.
+9. **Export:**
    - **3MF** with 2 named objects (`terrain`, `route`) at the same origin, so Bambu Studio can load them as one object with 2 parts and assign a filament to each.
    - **STL zip** as a fallback.
    - **GLB** for the web preview.
@@ -76,14 +80,17 @@ A personal web app for designing 3D-printable terrain models of a location, with
 | POST | `/api/gpx` | Upload a GPX; returns track GeoJSON, stats (distance, D+), and the suggested bbox |
 | POST | `/api/model` | Takes the GPX id + parameters; returns a model id, a GLB preview URL, and stats |
 | GET | `/api/model/{id}/preview.glb` | Mesh for the 3D preview |
-| GET | `/api/model/{id}/download?format=3mf\|stl` | Printable file |
+| GET | `/api/model/{id}/download?format=bambu\|3mf\|stl` | Printable file (`bambu` = Bambu Studio project) |
+| GET | `/api/fit-test` | Inlay fit test with the given width, clearance and piece height |
 
 **Parameters:**
-- `width_mm` (default 180, max 250)
-- `margin_pct`
-- `z_exaggeration`
+- `size_mm`: longest side of the model (default 180, max 250 in v1; larger sizes come with grid splitting, see section 5). A larger print is the way to separate tight hairpins.
+- `margin_pct`: map area around the route, as a % of the route's larger extent (default 10). A larger margin widens the map but shrinks the scale.
+- `z_exaggeration` (default 1.5)
 - `base_mm` (default 3)
-- `route_width_mm`
+- `mode`: `blended` or `inlay`
+- `route_width_mm` (default 1.2 blended, 1.6 inlay: separate pieces are more fragile)
+- `inlay_clearance_mm` (default 0.15), `inlay_piece_height_mm` (default 6)
 - `route_raise_mm`
 - `groove_depth_mm`
 - `resolution_mm`
@@ -106,20 +113,56 @@ README.md       written after v1
 
 ## 4. Implementation pipeline (v1)
 
-- [ ] **Step 0: Scaffolding.** Monorepo layout, Python project (uv or pip + `pyproject.toml`), Vite React TS app, lint/format (ruff, eslint/prettier), dev script that runs both.
-- [ ] **Step 1: GPX module.** Parse, clean, simplify, stats (distance, D+, D−), bbox + margin. Unit tests with fixtures.
-- [ ] **Step 2: DEM module.** Find the GLO-30 tiles that cover a bbox, windowed read, mosaic, cache. Test on one known Alpine area.
-- [ ] **Step 3: Projection & resampling.** UTM conversion and a regular print grid.
-- [ ] **Step 4: Terrain solid.** Heightfield → watertight mesh with a base. Test: `mesh.is_watertight`, size within 256 mm.
-- [ ] **Step 5: Route insert.** Buffered polygon → band solid → boolean ops. Test that both bodies are manifold and do not overlap.
-- [ ] **Step 6: Export.** 3MF with 2 objects, STL zip, GLB. Manual check: open in Bambu Studio and assign 2 filaments.
-- [ ] **Step 7: API.** FastAPI endpoints, in-memory/disk model store, error handling (GPX outside Europe, route too big).
-- [ ] **Step 8: Frontend: upload & map.** Drag-and-drop GPX, route on a MapLibre map, bbox overlay, stats.
-- [ ] **Step 9: Frontend: parameters & 3D preview.** Parameter form, "Generate" button, three.js preview with 2 colours, download buttons.
-- [ ] **Step 10: End-to-end test print.** One real GPX, printed on the A1. Tune the defaults (route width, raise, exaggeration).
-- [ ] **Step 11: README.** Setup, usage, parameters, printing tips for Bambu Studio.
+- [x] **Step 0: Scaffolding.** Monorepo layout, Python project (uv + `pyproject.toml`), Vite React TS app, lint/format (ruff, oxlint/prettier), dev script that runs both (`scripts/dev.sh`).
+- [x] **Step 1: GPX module.** Parse, clean, simplify, stats (distance, D+, D−), bbox + margin. Unit tests with fixtures. (`backend/app/gpx.py`, `backend/app/geo.py`; fixture `alps_loop.gpx` is a synthetic loop near Chamonix)
+- [x] **Step 2: DEM module.** Find the GLO-30 tiles that cover a bbox, mosaic, cache. Test on one known Alpine area. (`backend/app/dem.py`; whole tiles are cached in `backend/.cache/dem` or `$TOPO_DEM_CACHE_DIR`; the Mont Blanc test downloads real data and is marked `network`)
+- [x] **Step 3: Projection & resampling.** UTM conversion and a regular print grid. (`backend/app/heightfield.py`; DEM read at half the node spacing with averaging, then bilinear onto grid nodes; optional Gaussian smoothing)
+- [x] **Step 4: Terrain solid.** Heightfield → watertight mesh with a base. Test: `mesh.is_watertight`, size within 256 mm. (`backend/app/terrain.py`, `backend/app/mesh.py`)
+- [x] **Step 5: Route insert.** Buffered polygon → band solid → boolean ops. Test that both bodies are manifold and do not overlap. (`backend/app/route.py`; Alpe d'Huez at 0.25 mm builds in ~7 s, 1.4 M + 0.14 M triangles)
+- [x] **Step 6: Export.** 3MF with 2 objects, STL zip, GLB. Manual check: open in Bambu Studio and assign 2 filaments. (`backend/app/export.py`; 3MF = one assembly of two named parts, validated with lib3mf; Alpe d'Huez 3MF is 8.5 MB. Bambu Studio check done: loads as one object with two parts, slices without errors, but warns about the missing project config.)
+- [x] **Step 6b: Inlay mode and fit test.** Route printed separately in flat-bottomed pieces (see 3.2 item 8). Pieces are split along the route (Voronoi partition of centreline samples) so cuts run square across the road; a road ridden twice counts once. Alpe d'Huez: 16 pieces, 2–9 mm tall, or 1 piece of 65 mm.
+- [x] **Step 6c: Bambu Studio project 3MF.** (`backend/app/bambu/`) Same structure as a project saved by Bambu Studio 2.8.2.61: production extension (one model file per object), `model_settings.config` (parts, filaments, plates) and the owner's `project_settings.config` as template (A1, 0.4 nozzle, 0.20 mm Standard, 4 AMS filaments). Terrain on filament 1, route on filament 2; inlay: terrain on plate 1, pieces on plate 2; blended: flush into the terrain's infill. **Check pending with the owner: no warning on import.**
+- [x] **Step 7: API.** (`backend/app/api.py`, `backend/app/pipeline.py`) `POST /api/gpx`, `POST /api/models` (mode + all parameters, validated), `GET /api/models/{id}/preview.glb` (inlay shown assembled), `GET /api/models/{id}/download?format=bambu|3mf|stl`, `GET /api/fit-test`. In-memory store of the last 20 tracks / 5 models. Alpe d'Huez: 5.5 s blended, 2.8 s inlay.
+- [x] **Step 8: Frontend: upload & map.** Drag-and-drop GPX, route on a MapLibre map (OpenTopoMap tiles), print area overlay following the margin/size sliders (`GET /api/gpx/{id}/frame`), stats.
+- [x] **Step 9: Frontend: parameters & 3D preview.** Mode choice (blended / inlay), model size, map margin, z-exaggeration, route width, inlay piece height and clearance, advanced settings; Generate; three.js preview (simplified mesh, ~2 MB, inlay shown assembled); downloads (Bambu project, plain 3MF, STL, fit test). Checked end to end in headless Chromium.
+- [ ] **Step 10: End-to-end test print.** One real GPX, printed on the A1. Tune the defaults (route width, raise, exaggeration). *In progress:* inlay fit test printed (0.15 mm clearance is right), Bambu project opens without warning, app tested by the owner; full Alpe d'Huez print pending.
+- [x] **Step 11: README.** Setup (macOS/Linux/Windows), usage, print modes, settings, Bambu Studio tips, how it works, API, development, troubleshooting, data credits.
 
-## 5. Backlog (after v1)
+## 5. Next feature: automatic grid splitting (v1.1)
+
+For models much larger than the A1 bed (e.g. a 600 × 400 mm map of a long race), the app splits the model into a grid of tiles that each fit on the bed, then reassemble after printing.
+
+**Behaviour**
+- The user types any **final** model size, e.g. 400 or 600 mm (no 250 mm cap any more); it is printed in several steps and assembled like a puzzle. Confirmed by the owner on 2026-10-09. The app computes the smallest grid (columns × rows) whose tiles fit the usable bed area (default 240 × 240 mm, leaving a margin on the 256 mm bed).
+- The user can override the grid (e.g. force 3 × 2) and see the cut lines on the 2D map and in the 3D preview.
+- Each tile is exported with its own terrain and route bodies, so every tile still prints in two colours.
+- Works in both print modes: in inlay mode, route pieces are also cut at the tile edges.
+
+**Geometry**
+- Build the full model once (terrain + route), then cut it with axis-aligned planes into tiles (manifold3d `split_by_plane` / box intersections), so tiles join without steps or gaps.
+- Route pieces are cut at the same planes, so the route stays continuous across tiles.
+- Every tile gets the full base thickness and flat vertical side walls on its cut edges.
+
+**Assembly aids** (options)
+- Alignment holes for dowels or magnets in the base along the cut edges (default: 2 per shared edge, Ø 3 mm × 3 mm deep for metal pins, plus 0.15 mm clearance).
+- Tile label engraved underneath (e.g. `B2`) and a small orientation arrow.
+- Optional dovetail/puzzle joints (later).
+
+**Export**
+- One 3MF per tile, named `<model>_A1.3mf`, `<model>_A2.3mf`, … zipped together, plus an assembly diagram (PNG/SVG) showing the tile layout.
+- Each tile is placed flat and centred, ready to slice.
+
+**Steps**
+- [ ] **Step 12: Tiling core.** Grid computation, plane cuts of terrain + route, watertight checks per tile.
+- [ ] **Step 13: Assembly aids.** Alignment holes, engraved tile labels.
+- [ ] **Step 14: Tiling UI & export.** Grid overlay on the map and in the 3D preview, grid override, zipped multi-3MF export + assembly diagram.
+
+## 6. Backlog (later)
+
+- **GPX route cutter**: choose which portion of the GPX to display and print, e.g. with start/end handles on the map or on an elevation profile (by distance). The print frame follows the selected portion; the rest of the track is dropped (option: show it faded on the map only). Owner request, 2026-10-09.
+- Interface improvements (owner: later version)
+
+- Choose the AMS slots (colours) for terrain and route in the app: purge volume depends heavily on the colour pair (in the owner's flush matrix, purple → white costs 525 mm³ per change, white → purple 186 mm³)
 
 - Other shapes: circle, hexagon, custom polygon
 - Manual bbox editing on the map
@@ -127,11 +170,9 @@ README.md       written after v1
 - Higher-resolution national DEMs (IGN, swisstopo, …)
 - Water bodies and rivers from OSM as a third colour
 - Several routes on one print
-- Splitting into tiles for prints larger than 256 mm
 - Strava / Komoot import
-- Global coverage
 
-## 6. Decision log
+## 7. Decision log
 
 | Date | Decision | Reason |
 |---|---|---|
@@ -139,8 +180,24 @@ README.md       written after v1
 | 2026-10-07 | Copernicus GLO-30 as the v1 DEM | Free, covers Europe, COG on AWS, no auth needed |
 | 2026-10-07 | Route as a separate body in a 3MF, sharing faces with the terrain | AMS prints both bodies together, so no clearance is needed |
 | 2026-10-07 | Rectangle only, framed automatically from the GPX | Keeps v1 small |
+| 2026-10-07 | Defaults: 180 mm width, 1.5× z-exaggeration | Confirmed by owner |
+| 2026-10-07 | Grid splitting for models larger than the bed, planned as v1.1 | Owner request; builds on the v1 pipeline |
+| 2026-10-08 | Groove cut = band prism minus a "groove floor" solid padded 1 mm past the model edges | Avoids coplanar faces in the booleans; terrain and insert share exact faces |
+| 2026-10-08 | Model size applies to the longest side (default 180 mm) | Portrait frames could otherwise exceed the bed |
+| 2026-10-08 | Route width default 1.2 mm (was 1.6) | Tight hairpins merged at 1.6 mm |
+| 2026-10-08 | UI exposes size, margin, z-exaggeration (default 1.5×) and route width | Owner request |
+| 2026-10-08 | 3MF written by hand as one components object (`terrain` + `route`), 6-decimal coordinates | Slicers load it as one object with two parts; 4 decimals merged boolean slivers into degenerate faces |
+| 2026-10-08 | Sea tiles decided by the official GLO-30 `tileList.txt`, never by a failed download | A transient 404 had flattened a land tile in a test run |
+| 2026-10-09 | Two print modes kept: blended and inlay | Blended wasted ~60 g purge out of 350 g; the right choice depends on the project's scale |
+| 2026-10-09 | Inlay pieces cut along contour bands, flat bottoms, 0.15 mm clearance, 1.6 mm width | A route following the terrain cannot print alone; short flat-bottomed pieces print without supports |
+| 2026-10-09 | Bambu project 3MF built from a reference project saved by the owner | Bambu Studio only loads project config naming its own system presets; values must match the installed version |
+| 2026-10-09 | Bambu project keeps the owner's 4 filaments; terrain = slot 1, route = slot 2 | Re-indexing all per-filament arrays of the config is fragile; Bambu fills the rest from its system presets |
+| 2026-10-09 | Fit test result: 0.15 mm clearance is right on the owner's A1 | Kept as default |
+| 2026-10-09 | Owner validated the app and the Bambu project (no warning with File → Open Project) | v1 feature set complete; interface polish deferred |
+| 2026-10-09 | No geographic restriction in the API | Copernicus GLO-30 is global; "Europe" was only the test scope |
+| 2026-10-08 | Alpe d'Huez GPX (owner's Strava ride, stripped to position + elevation) used as the real-world test route | Real hairpins, portrait frame, 1400 m of relief |
 
-## 7. Open questions
+## 8. Open questions
 
-- Default print width: 180 mm, or the full 250 mm?
 - Preferred z-exaggeration for Alpine vs. flatter areas (to tune after the first print)
+- Tiling: alignment pins (metal dowels, magnets, or printed pins)?
