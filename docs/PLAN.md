@@ -84,7 +84,7 @@ A personal web app for designing 3D-printable terrain models of a location, with
 | GET | `/api/fit-test` | Inlay fit test with the given width, clearance and piece height |
 
 **Parameters:**
-- `size_mm`: longest side of the model (default 180, max 250 in v1; larger sizes come with grid splitting, see section 5). A larger print is the way to separate tight hairpins.
+- `size_mm`: longest side of the model (default 180, max 250 in v1; larger sizes come with grid splitting, see section 6). A larger print is the way to separate tight hairpins.
 - `margin_pct`: map area around the route, as a % of the route's larger extent (default 10). A larger margin widens the map but shrinks the scale.
 - `z_exaggeration` (default 1.5)
 - `base_mm` (default 3)
@@ -128,7 +128,15 @@ README.md       written after v1
 - [ ] **Step 10: End-to-end test print.** One real GPX, printed on the A1. Tune the defaults (route width, raise, exaggeration). *In progress:* inlay fit test printed (0.15 mm clearance is right), Bambu project opens without warning, app tested by the owner; full Alpe d'Huez print pending.
 - [x] **Step 11: README.** Setup (macOS/Linux/Windows), usage, print modes, settings, Bambu Studio tips, how it works, API, development, troubleshooting, data credits.
 
-## 5. Next feature: automatic grid splitting (v1.1)
+## 5. Route cutter (v1.1) — done
+
+Print only part of a GPX, e.g. just the climb of a ride that goes up and down.
+
+- **Backend** (`gpx.py`): distance along the route (gaps between segments are not counted), `slice_track` between two distances with interpolated cut points, resampled elevation profile. The API takes optional `start_km` / `end_km` on `GET /api/gpx/{id}/frame` and `POST /api/models`; the frame response returns the selection's stats and GeoJSON.
+- **Frontend**: elevation profile under the route stats with two handles (mouse, touch or arrow keys), hover crosshair with distance and elevation; stats, map (selection in orange, rest faded) and print area follow the selection; *Whole route* resets it.
+- Limitation: a GPX without elevations has no profile, so it can only be printed whole.
+
+## 6. Next feature: automatic grid splitting (v1.2)
 
 For models much larger than the A1 bed (e.g. a 600 × 400 mm map of a long race), the app splits the model into a grid of tiles that each fit on the bed, then reassemble after printing.
 
@@ -157,9 +165,8 @@ For models much larger than the A1 bed (e.g. a 600 × 400 mm map of a long race)
 - [ ] **Step 13: Assembly aids.** Alignment holes, engraved tile labels.
 - [ ] **Step 14: Tiling UI & export.** Grid overlay on the map and in the 3D preview, grid override, zipped multi-3MF export + assembly diagram.
 
-## 6. Backlog (later)
+## 7. Backlog (later)
 
-- **GPX route cutter**: choose which portion of the GPX to display and print, e.g. with start/end handles on the map or on an elevation profile (by distance). The print frame follows the selected portion; the rest of the track is dropped (option: show it faded on the map only). Owner request, 2026-10-09.
 - Interface improvements (owner: later version)
 
 - Choose the AMS slots (colours) for terrain and route in the app: purge volume depends heavily on the colour pair (in the owner's flush matrix, purple → white costs 525 mm³ per change, white → purple 186 mm³)
@@ -172,7 +179,7 @@ For models much larger than the A1 bed (e.g. a 600 × 400 mm map of a long race)
 - Several routes on one print
 - Strava / Komoot import
 
-## 7. Decision log
+## 8. Decision log
 
 | Date | Decision | Reason |
 |---|---|---|
@@ -193,11 +200,12 @@ For models much larger than the A1 bed (e.g. a 600 × 400 mm map of a long race)
 | 2026-10-09 | Bambu project 3MF built from a reference project saved by the owner | Bambu Studio only loads project config naming its own system presets; values must match the installed version |
 | 2026-10-09 | Bambu project keeps the owner's 4 filaments; terrain = slot 1, route = slot 2 | Re-indexing all per-filament arrays of the config is fragile; Bambu fills the rest from its system presets |
 | 2026-10-09 | Fit test result: 0.15 mm clearance is right on the owner's A1 | Kept as default |
+| 2026-10-09 | Route cutter on the elevation profile (by distance), before grid splitting | Owner's choice of next feature; handles on a profile are more precise than on the map |
 | 2026-10-09 | Owner validated the app and the Bambu project (no warning with File → Open Project) | v1 feature set complete; interface polish deferred |
 | 2026-10-09 | No geographic restriction in the API | Copernicus GLO-30 is global; "Europe" was only the test scope |
 | 2026-10-08 | Alpe d'Huez GPX (owner's Strava ride, stripped to position + elevation) used as the real-world test route | Real hairpins, portrait frame, 1400 m of relief |
 
-## 8. Open questions
+## 9. Open questions
 
 - Preferred z-exaggeration for Alpine vs. flatter areas (to tune after the first print)
 - Tiling: alignment pins (metal dowels, magnets, or printed pins)?

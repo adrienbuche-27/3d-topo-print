@@ -10,9 +10,12 @@ from app.gpx import (
     clean_track,
     compute_frame,
     compute_stats,
+    elevation_profile,
     load_gpx,
     parse_gpx,
     simplify_track,
+    slice_track,
+    track_length_m,
     track_to_geojson,
 )
 
@@ -167,3 +170,58 @@ def test_geojson(alps_loop: Track) -> None:
     assert len(coords) == 1 and len(coords[0]) == 401
     first = alps_loop.points[0]
     assert coords[0][0] == [first.lon, first.lat]
+
+
+def straight(n: int = 11, lat0: float = 45.0, step: float = 0.001) -> list[TrackPoint]:
+    """Points due north, ~111 m apart, climbing 10 m per point."""
+    return [TrackPoint(lat0 + i * step, 6.0, 1000.0 + 10 * i) for i in range(n)]
+
+
+def test_slice_interpolates_the_cut_points() -> None:
+    track = Track(name="line", segments=[straight()])
+    total = track_length_m(track)
+    assert total == pytest.approx(1112, rel=0.01)
+
+    part = slice_track(track, total * 0.25, total * 0.75)
+    assert compute_stats(part).distance_m == pytest.approx(total / 2, rel=1e-6)
+    first, last = part.points[0], part.points[-1]
+    assert first.lat == pytest.approx(45.0025)
+    assert first.ele == pytest.approx(1025)
+    assert last.lat == pytest.approx(45.0075)
+    assert last.ele == pytest.approx(1075)
+    assert part.name == "line"
+
+
+def test_slice_across_segments_ignores_the_gap() -> None:
+    # Two 1.1 km segments with a 10 km jump between them (e.g. a paused recording).
+    track = Track(name=None, segments=[straight(), straight(lat0=45.1)])
+    total = track_length_m(track)
+    assert total == pytest.approx(2 * 1112, rel=0.01)
+
+    part = slice_track(track, total * 0.4, total * 0.6)
+    assert len(part.segments) == 2
+    assert compute_stats(part).distance_m == pytest.approx(total * 0.2, rel=1e-6)
+
+    only_second = slice_track(track, total * 0.6, total)
+    assert len(only_second.segments) == 1
+    assert only_second.points[0].lat > 45.1
+
+
+def test_slice_rejects_empty_portions() -> None:
+    track = Track(name=None, segments=[straight()])
+    with pytest.raises(GpxError):
+        slice_track(track, 500, 500.5)
+    with pytest.raises(GpxError):
+        slice_track(track, 5_000, 6_000)
+
+
+def test_climb_of_a_real_ride(alps_loop: Track) -> None:
+    profile = elevation_profile(alps_loop, max_points=200)
+    assert len(profile["distance_km"]) == 200
+    assert profile["distance_km"][-1] == pytest.approx(track_length_m(alps_loop) / 1000, abs=1e-4)
+    assert max(profile["elevation_m"]) == pytest.approx(2150, abs=10)
+
+
+def test_profile_without_elevation() -> None:
+    track = Track(name=None, segments=[[TrackPoint(45.0, 6.0), TrackPoint(45.01, 6.0)]])
+    assert elevation_profile(track) == {"distance_km": [], "elevation_m": []}

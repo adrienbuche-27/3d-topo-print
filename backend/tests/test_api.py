@@ -122,3 +122,37 @@ def test_frame_follows_margin_and_size(client: TestClient, gpx_id: str) -> None:
     assert large["real_size_km"][0] > small["real_size_km"][0]
     assert large["bbox"][0] < small["bbox"][0]  # wider map to the west
     assert client.get("/api/gpx/nope/frame").status_code == 404
+
+
+def test_upload_returns_the_elevation_profile(client: TestClient) -> None:
+    gpx = (FIXTURES / "alps_loop.gpx").read_bytes()
+    body = client.post("/api/gpx", files={"file": ("loop.gpx", gpx)}).json()
+    profile = body["profile"]
+    assert len(profile["distance_km"]) == len(profile["elevation_m"]) > 100
+    assert profile["distance_km"][-1] == pytest.approx(body["length_km"], abs=1e-3)
+
+
+def test_route_cutter_frame_and_model(client: TestClient, gpx_id: str) -> None:
+    full = client.get(f"/api/gpx/{gpx_id}/frame").json()
+    half = client.get(f"/api/gpx/{gpx_id}/frame", params={"start_km": 0, "end_km": 7}).json()
+    assert half["selection"]["stats"]["distance_km"] == pytest.approx(7, abs=0.01)
+    assert full["selection"]["stats"]["distance_km"] == pytest.approx(14.1, abs=0.3)
+    # Half of the loop covers a smaller area.
+    assert half["real_size_km"][0] * half["real_size_km"][1] < (
+        full["real_size_km"][0] * full["real_size_km"][1]
+    )
+    # Only an end: from the start of the route.
+    to_end = client.get(f"/api/gpx/{gpx_id}/frame", params={"end_km": 7}).json()
+    assert to_end["bbox"] == half["bbox"]
+
+    body = client.post(
+        "/api/models", json={"gpx_id": gpx_id, "start_km": 0, "end_km": 7, **FAST}
+    ).json()
+    assert body["stats"]["real_size_km"] == half["real_size_km"]
+
+
+def test_route_cutter_rejects_empty_portions(client: TestClient, gpx_id: str) -> None:
+    empty = client.get(f"/api/gpx/{gpx_id}/frame", params={"start_km": 5, "end_km": 5})
+    assert empty.status_code == 422
+    beyond = client.post("/api/models", json={"gpx_id": gpx_id, "start_km": 50, **FAST})
+    assert beyond.status_code == 422

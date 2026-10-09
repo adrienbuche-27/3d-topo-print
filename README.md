@@ -5,6 +5,7 @@ A web app to design 3D-printable terrain models of a place, with a GPX route —
 ![The app: settings on the left, 3D preview of an inlay model of Alpe d'Huez on the right](docs/images/app-inlay-preview.png)
 
 - Upload a GPX file; the terrain is framed automatically around the route.
+- Route cutter: print only part of a route (e.g. just the climb), chosen on its elevation profile.
 - Real elevation data (Copernicus GLO-30, 30 m resolution, worldwide), downloaded and cached automatically.
 - Two print modes:
   - **Blended** — terrain and route printed together in two colours with the AMS.
@@ -80,9 +81,10 @@ The first start takes a few minutes (libraries are downloaded). The first model 
 ## Using the app
 
 1. **Route** — drop a `.gpx` file on the upload area (or click to choose one). Tracks and planned routes from Strava, Garmin, Komoot, etc. work. The app shows the name, distance, climb and highest point, and draws the route on a topographic map.
-2. **Model** — choose the print mode and adjust the settings. The dashed rectangle on the map is the area that will be printed; it follows the *Map margin* and *Model size* sliders, and the line below the settings gives the model's footprint in mm, the real area in km and the scale.
-3. **Generate** — builds the model (about 5–20 s) and opens the 3D preview. Drag to rotate, scroll to zoom, right-drag to pan. In inlay mode the preview shows the pieces sitting in their slots.
-4. **Print** — download the **Bambu Studio project** (recommended), or a plain 3MF, the STL files, or (inlay mode) the fit test. If you change a setting after generating, the app reminds you to regenerate.
+2. **Portion to print** *(optional)* — under the route stats, the elevation profile has two handles: drag them (or focus one and use the arrow keys, Shift for bigger steps) to print only part of the route. The stats, the map (selected part in orange, the rest faded) and the print area follow the selection; *Whole route* resets it.
+3. **Model** — choose the print mode and adjust the settings. The dashed rectangle on the map is the area that will be printed; it follows the *Map margin* and *Model size* sliders, and the line below the settings gives the model's footprint in mm, the real area in km and the scale.
+4. **Generate** — builds the model (about 5–20 s) and opens the 3D preview. Drag to rotate, scroll to zoom, right-drag to pan. In inlay mode the preview shows the pieces sitting in their slots.
+5. **Print** — download the **Bambu Studio project** (recommended), or a plain 3MF, the STL files, or (inlay mode) the fit test. If you change a setting after generating, the app reminds you to regenerate.
 
 ---
 
@@ -199,9 +201,9 @@ The backend runs on http://localhost:8000; interactive docs at http://localhost:
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/api/gpx` | Upload a GPX (multipart `file`). Returns `gpx_id`, name, stats, bbox and the track as GeoJSON. |
-| GET | `/api/gpx/{gpx_id}/frame?margin_pct=&size_mm=` | Print area and model footprint for a margin and size. |
-| POST | `/api/models` | Build a model. JSON body: `gpx_id`, `mode` and the [settings](#settings) (`size_mm`, `margin_pct`, `z_exaggeration`, `route_width_mm`, `base_mm`, `route_raise_mm`, `groove_depth_mm`, `resolution_mm`, `inlay_clearance_mm`, `inlay_piece_height_mm`). Returns `model_id`, stats and URLs. |
+| POST | `/api/gpx` | Upload a GPX (multipart `file`). Returns `gpx_id`, name, stats, length, elevation profile, bbox and the track as GeoJSON. |
+| GET | `/api/gpx/{gpx_id}/frame?margin_pct=&size_mm=&start_km=&end_km=` | Print area and model footprint for a margin and size, and the selected portion of the route (stats + GeoJSON). |
+| POST | `/api/models` | Build a model. JSON body: `gpx_id`, `mode`, optional `start_km` / `end_km` (route cutter) and the [settings](#settings) (`size_mm`, `margin_pct`, `z_exaggeration`, `route_width_mm`, `base_mm`, `route_raise_mm`, `groove_depth_mm`, `resolution_mm`, `inlay_clearance_mm`, `inlay_piece_height_mm`). Returns `model_id`, stats and URLs. |
 | GET | `/api/models/{model_id}/preview.glb` | Simplified mesh for the 3D preview. |
 | GET | `/api/models/{model_id}/download?format=bambu\|3mf\|stl` | Printable files. |
 | GET | `/api/fit-test?format=&route_width_mm=&inlay_clearance_mm=&inlay_piece_height_mm=` | Inlay fit test. |

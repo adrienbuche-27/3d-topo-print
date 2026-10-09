@@ -268,6 +268,73 @@ def _center(track: Track) -> tuple[float, float]:
     return (min(lons) + max(lons)) / 2, (min(lats) + max(lats)) / 2
 
 
+def segment_distances(track: Track) -> list[np.ndarray]:
+    """Distance along the route (m) at each point, per segment.
+
+    Distances continue from one segment to the next; the gap between two
+    segments (e.g. a paused recording) is not counted.
+    """
+    out = []
+    offset = 0.0
+    for seg in track.segments:
+        steps = [
+            haversine_m(a.lat, a.lon, b.lat, b.lon) for a, b in zip(seg, seg[1:], strict=False)
+        ]
+        d = offset + np.concatenate([[0.0], np.cumsum(steps)])
+        out.append(d)
+        offset = float(d[-1])
+    return out
+
+
+def track_length_m(track: Track) -> float:
+    return float(segment_distances(track)[-1][-1])
+
+
+def _interpolate(a: TrackPoint, b: TrackPoint, t: float) -> TrackPoint:
+    ele = None if a.ele is None or b.ele is None else a.ele + t * (b.ele - a.ele)
+    return TrackPoint(lat=a.lat + t * (b.lat - a.lat), lon=a.lon + t * (b.lon - a.lon), ele=ele)
+
+
+def _point_at(seg: list[TrackPoint], d: np.ndarray, at: float) -> TrackPoint:
+    i = int(np.clip(np.searchsorted(d, at) - 1, 0, len(seg) - 2))
+    span = d[i + 1] - d[i]
+    return _interpolate(seg[i], seg[i + 1], 0.0 if span == 0 else (at - d[i]) / span)
+
+
+def slice_track(track: Track, start_m: float, end_m: float) -> Track:
+    """Portion of the track between two distances along it; cut points are interpolated."""
+    if end_m - start_m < 1.0:
+        raise GpxError("The selected portion of the route is too short.")
+    segments = []
+    for seg, d in zip(track.segments, segment_distances(track), strict=True):
+        if d[-1] < start_m or d[0] > end_m:
+            continue
+        lo, hi = max(start_m, d[0]), min(end_m, d[-1])
+        inside = [p for p, di in zip(seg, d, strict=True) if lo < di < hi]
+        part = [_point_at(seg, d, lo), *inside, _point_at(seg, d, hi)]
+        if hi > lo:
+            segments.append(part)
+    if not segments:
+        raise GpxError("The selected portion of the route is empty.")
+    return Track(name=track.name, segments=segments)
+
+
+def elevation_profile(track: Track, max_points: int = 600) -> dict:
+    """Distance (km) and elevation (m) along the route, resampled evenly for a chart."""
+    distances = segment_distances(track)
+    d = np.concatenate(distances)
+    if any(p.ele is None for p in track.points):
+        return {"distance_km": [], "elevation_m": []}
+    ele = np.array([p.ele for p in track.points], dtype=float)
+    # np.interp needs increasing x: keep the first of repeated distances (gaps, duplicates).
+    keep = np.concatenate([[True], np.diff(d) > 0])
+    samples = np.linspace(0.0, d[-1], min(max_points, max(int(keep.sum()), 2)))
+    return {
+        "distance_km": np.round(samples / 1000, 4).tolist(),
+        "elevation_m": np.round(np.interp(samples, d[keep], ele[keep]), 1).tolist(),
+    }
+
+
 def track_to_geojson(track: Track) -> dict:
     """GeoJSON Feature (MultiLineString) for map display."""
     return {
