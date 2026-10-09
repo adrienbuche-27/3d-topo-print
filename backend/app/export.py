@@ -21,6 +21,7 @@ from manifold3d import Manifold
 from .inlay import InlayParts
 from .mesh import to_trimesh
 from .route import ModelParts
+from .tiles import PinHole, Tile, pin_solid
 
 # Preview colours (RGBA); the real colours are the filaments chosen in the slicer.
 TERRAIN_COLOR = (214, 208, 196, 255)
@@ -53,8 +54,9 @@ class PrintObject:
     offset: tuple[float, float, float] = (0.0, 0.0, 0.0)
     color: tuple[int, int, int, int] = TERRAIN_COLOR
     part_colors: dict[str, tuple[int, int, int, int]] = field(default_factory=dict)
-    # Bambu Studio project only: plate number, filament slots and per-object settings.
+    # Bambu Studio project only: plate number and name, filament slots, per-object settings.
     plate: int = 1
+    plate_name: str = ""
     filament: int = 1
     part_filaments: dict[str, int] = field(default_factory=dict)
     settings: dict[str, str] = field(default_factory=dict)
@@ -165,3 +167,83 @@ def to_glb(objects: list[PrintObject]) -> bytes:
             mesh.visual = trimesh.visual.ColorVisuals(mesh, face_colors=color)
             scene.add_geometry(mesh, node_name=part_name, geom_name=part_name)
     return scene.export(file_type="glb")
+
+
+# Gap between tiles in the exploded layout of plain 3MF / STL exports.
+TILE_GAP_MM = 10.0
+PIN_SPACING_MM = 6.0
+
+
+def _exploded(tile: Tile) -> tuple[float, float, float]:
+    """Offset that spreads the tiles apart by TILE_GAP_MM, keeping their arrangement."""
+    return (tile.spec.col * TILE_GAP_MM, -tile.spec.row * TILE_GAP_MM, 0.0)
+
+
+def tiled_layout(
+    tiles: list[Tile], holes: list[PinHole], mode: str, name: str
+) -> list[PrintObject]:
+    """Split model: one plate per tile (inlay: plus one for its route pieces) and a plate
+    of alignment pins.
+
+    Plain 3MF / STL exports show the tiles spread slightly apart in their grid, the inlay
+    pieces as a second grid to the east, and the pins to the south.
+    """
+    objects: list[PrintObject] = []
+    plate = 0
+    cols = 1 + max(t.spec.col for t in tiles)
+    rows = 1 + max(t.spec.row for t in tiles)
+    model_width = max(t.bounds_mm[2] for t in tiles)
+    pieces_shift = model_width + (cols + 2) * TILE_GAP_MM
+    for tile in tiles:
+        plate += 1
+        parts = [("terrain", tile.terrain)]
+        if mode == "blended" and tile.route is not None:
+            parts.append(("route", tile.route))
+        objects.append(
+            PrintObject(
+                name=f"{name} {tile.label}",
+                parts=parts,
+                offset=_exploded(tile),
+                part_colors={"route": ROUTE_COLOR},
+                plate=plate,
+                plate_name=f"{tile.label} terrain" if mode == "inlay" else tile.label,
+                part_filaments={"route": ROUTE_FILAMENT},
+                settings={"flush_into_infill": "1"} if mode == "blended" else {},
+            )
+        )
+        if mode == "inlay" and tile.pieces:
+            plate += 1
+            dx, dy, _ = _exploded(tile)
+            objects.append(
+                PrintObject(
+                    name=f"{tile.label} route pieces",
+                    parts=[
+                        (f"{tile.label} piece {i}", p.on_bed())
+                        for i, p in enumerate(tile.pieces, start=1)
+                    ],
+                    offset=(dx + pieces_shift, dy, 0.0),
+                    color=ROUTE_COLOR,
+                    plate=plate,
+                    plate_name=f"{tile.label} route pieces",
+                    filament=ROUTE_FILAMENT,
+                )
+            )
+    if holes:
+        pin = pin_solid()
+        pin_length = pin.bounding_box()[3]
+        per_row = 10
+        parts = []
+        for i in range(len(holes)):
+            row, col = divmod(i, per_row)
+            step = (col * (pin_length + PIN_SPACING_MM), row * PIN_SPACING_MM, 0.0)
+            parts.append((f"pin {i + 1}", pin.translate(step)))
+        objects.append(
+            PrintObject(
+                name="alignment pins",
+                parts=parts,
+                offset=(0.0, -(rows + 2) * TILE_GAP_MM - 10 * PIN_SPACING_MM, 0.0),
+                plate=plate + 1,
+                plate_name="alignment pins",
+            )
+        )
+    return objects

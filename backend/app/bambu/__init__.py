@@ -96,6 +96,7 @@ def to_bambu_3mf(objects: list[PrintObject], title: str = "Topo print") -> bytes
     model_resources, build_items, object_rels = [], [], []
     config = ['<?xml version="1.0" encoding="UTF-8"?>', "<config>"]
     plates: dict[int, list[int]] = {}
+    plate_names: dict[int, str] = {}
     next_id = 1
     for n, obj in enumerate(objects, start=1):
         # Centre the object's meshes on its own origin, as Bambu Studio does, and place
@@ -164,12 +165,13 @@ def to_bambu_3mf(objects: list[PrintObject], title: str = "Topo print") -> bytes
             "  </object>",
         ]
         plates.setdefault(obj.plate, []).append(object_id)
+        plate_names.setdefault(obj.plate, obj.plate_name)
 
     for plate in range(1, plate_count + 1):
         config += [
             "  <plate>",
             f'    <metadata key="plater_id" value="{plate}"/>',
-            '    <metadata key="plater_name" value=""/>',
+            f'    <metadata key="plater_name" value={_attr(plate_names.get(plate, ""))}/>',
             '    <metadata key="locked" value="false"/>',
             '    <metadata key="filament_map_mode" value="Auto For Flush"/>',
         ]

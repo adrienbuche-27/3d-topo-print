@@ -92,7 +92,7 @@ def test_inlay_model(client: TestClient, gpx_id: str) -> None:
 
 
 def test_model_parameter_validation(client: TestClient, gpx_id: str) -> None:
-    too_big = client.post("/api/models", json={"gpx_id": gpx_id, "size_mm": 400})
+    too_big = client.post("/api/models", json={"gpx_id": gpx_id, "size_mm": 1200})
     assert too_big.status_code == 422
     bad_mode = client.post("/api/models", json={"gpx_id": gpx_id, "mode": "painted"})
     assert bad_mode.status_code == 422
@@ -156,3 +156,44 @@ def test_route_cutter_rejects_empty_portions(client: TestClient, gpx_id: str) ->
     assert empty.status_code == 422
     beyond = client.post("/api/models", json={"gpx_id": gpx_id, "start_km": 50, **FAST})
     assert beyond.status_code == 422
+
+
+def test_large_model_is_split_into_tiles(client: TestClient, gpx_id: str) -> None:
+    # 100 mm model with 60 mm tiles: 2 x 2 grid.
+    frame = client.get(
+        f"/api/gpx/{gpx_id}/frame", params={"size_mm": 100, "max_tile_mm": 80}
+    ).json()
+    assert frame["grid"] == [2, 2]
+    assert [t["label"] for t in frame["tiles"]] == ["A1", "A2", "B1", "B2"]
+    west, south, east, north = frame["bbox"]
+    for tile in frame["tiles"]:
+        for lon, lat in tile["ring"]:
+            assert west - 1e-3 <= lon <= east + 1e-3 and south - 1e-3 <= lat <= north + 1e-3
+    single = client.get(f"/api/gpx/{gpx_id}/frame", params={"size_mm": 100}).json()
+    assert single["grid"] == [1, 1] and single["tiles"] == []
+
+    for mode in ("blended", "inlay"):
+        body = client.post(
+            "/api/models",
+            json={"gpx_id": gpx_id, "mode": mode, "max_tile_mm": 80, **FAST},
+        ).json()
+        assert body["stats"]["grid"] == [2, 2]
+        assert [t["label"] for t in body["stats"]["tiles"]] == ["A1", "A2", "B1", "B2"]
+        assert body["stats"]["pins"] == 8
+
+        bambu = client.get(body["downloads"]["bambu"])
+        with zipfile.ZipFile(io.BytesIO(bambu.content)) as zf:
+            config = zf.read("Metadata/model_settings.config").decode()
+        assert 'key="plater_name" value="A1' in config
+        assert 'value="alignment pins"' in config
+        # One plate per tile (inlay: plus one per tile with route pieces) and the pins.
+        if mode == "blended":
+            assert config.count("<plate>") == 4 + 1
+        else:
+            assert 4 + 1 < config.count("<plate>") <= 4 + 4 + 1
+
+    # An explicit grid overrides the automatic one.
+    body = client.post(
+        "/api/models", json={"gpx_id": gpx_id, "grid_cols": 2, "grid_rows": 1, **FAST}
+    ).json()
+    assert body["stats"]["grid"] == [2, 1]

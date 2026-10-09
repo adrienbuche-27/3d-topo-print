@@ -6,6 +6,7 @@ the most recent uploads and models are kept.
 
 from __future__ import annotations
 
+import string
 import uuid
 from collections import OrderedDict
 from typing import Literal
@@ -14,11 +15,14 @@ from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
+from pyproj import CRS
 
 from .bambu import to_bambu_3mf
 from .dem import DemError, TileSource
 from .export import inlay_layout, to_3mf, to_glb, to_stl_zip
+from .geo import from_crs
 from .gpx import (
+    Frame,
     GpxError,
     Track,
     compute_frame,
@@ -33,8 +37,11 @@ from .inlay import build_fit_test
 from .pipeline import DEFAULT_ROUTE_WIDTH_MM, BuildOptions, BuiltModel, Mode, build
 from .route import RouteError
 from .terrain import ModelParams
+from .tiles import DEFAULT_MAX_TILE_MM, grid_size
 
 MAX_GPX_BYTES = 20 * 1024 * 1024
+MAX_SIZE_MM = 1000  # larger than the bed: printed as a grid of tiles
+MAX_GRID = 8  # tile labels go from A1 to H8
 KEEP_TRACKS = 20
 KEEP_MODELS = 5
 
@@ -98,7 +105,9 @@ class ModelRequest(BaseModel):
     start_km: float | None = Field(None, ge=0)
     end_km: float | None = Field(None, ge=0)
     mode: Mode = "blended"
-    size_mm: float = Field(180, ge=20, le=250, description="Longest side of the model")
+    size_mm: float = Field(
+        180, ge=20, le=MAX_SIZE_MM, description="Longest side; above the tile size, split"
+    )
     margin_pct: float = Field(10, ge=0, le=200)
     z_exaggeration: float = Field(1.5, ge=0.2, le=10)
     base_mm: float = Field(3, ge=1, le=30)
@@ -110,6 +119,10 @@ class ModelRequest(BaseModel):
     resolution_mm: float = Field(0.25, ge=0.1, le=2)
     inlay_clearance_mm: float = Field(0.15, ge=0, le=1)
     inlay_piece_height_mm: float = Field(6, ge=1, le=1000)
+    # Grid splitting: automatic grid of tiles up to max_tile_mm, or an explicit grid.
+    max_tile_mm: float = Field(DEFAULT_MAX_TILE_MM, ge=80, le=250)
+    grid_cols: int | None = Field(None, ge=1, le=MAX_GRID)
+    grid_rows: int | None = Field(None, ge=1, le=MAX_GRID)
 
     def options(self) -> BuildOptions:
         width = self.route_width_mm or DEFAULT_ROUTE_WIDTH_MM[self.mode]
@@ -128,6 +141,8 @@ class ModelRequest(BaseModel):
             margin_pct=self.margin_pct,
             resolution_mm=self.resolution_mm,
             params=params,
+            max_tile_mm=self.max_tile_mm,
+            grid=(self.grid_cols, self.grid_rows) if self.grid_cols and self.grid_rows else None,
         )
 
 
@@ -163,22 +178,56 @@ async def upload_gpx(file: UploadFile = File(...)) -> dict:
 def frame(
     gpx_id: str,
     margin_pct: float = Query(10, ge=0, le=200),
-    size_mm: float = Query(180, ge=20, le=250),
+    size_mm: float = Query(180, ge=20, le=MAX_SIZE_MM),
     start_km: float | None = Query(None, ge=0),
     end_km: float | None = Query(None, ge=0),
+    max_tile_mm: float = Query(DEFAULT_MAX_TILE_MM, ge=80, le=250),
+    grid_cols: int | None = Query(None, ge=1, le=MAX_GRID),
+    grid_rows: int | None = Query(None, ge=1, le=MAX_GRID),
 ) -> dict:
     """Print area for a margin, the model's footprint for a size (longest side), and the
     selected portion of the route."""
     _, track = _selection(gpx_id, start_km, end_km)
     f = compute_frame(track, margin_pct=margin_pct)
     scale = size_mm / max(f.width_m, f.height_m)  # print mm per metre
+    width_mm, height_mm = f.width_m * scale, f.height_m * scale
+    if grid_cols and grid_rows:
+        cols, rows = grid_cols, grid_rows
+    else:
+        cols, rows = grid_size(width_mm, height_mm, max_tile_mm)
     return {
+        "grid": [cols, rows],
+        "tile_mm": [round(width_mm / cols, 1), round(height_mm / rows, 1)],
+        "tiles": _tile_outlines(f, cols, rows),
         "bbox": f.bbox_lonlat,
         "real_size_km": [round(f.width_m / 1000, 2), round(f.height_m / 1000, 2)],
         "size_mm": [round(f.width_m * scale, 1), round(f.height_m * scale, 1)],
         "scale": f"1:{round(1000 / scale):,}",
         "selection": {"stats": _stats(track), "geojson": track_to_geojson(track)},
     }
+
+
+def _tile_outlines(f: Frame, cols: int, rows: int) -> list[dict]:
+    """Tile rectangles in WGS84 for the map, labelled like the printed tiles."""
+    if cols * rows == 1:
+        return []
+    to_lonlat = from_crs(CRS.from_epsg(f.epsg))
+    min_x, min_y, max_x, max_y = f.bounds_m
+    xs = [min_x + (max_x - min_x) * c / cols for c in range(cols + 1)]
+    ys = [max_y - (max_y - min_y) * r / rows for r in range(rows + 1)]  # north → south
+    tiles = []
+    for r in range(rows):
+        for c in range(cols):
+            corners = [
+                (xs[c], ys[r + 1]),
+                (xs[c + 1], ys[r + 1]),
+                (xs[c + 1], ys[r]),
+                (xs[c], ys[r]),
+            ]
+            lon, lat = to_lonlat.transform([p[0] for p in corners], [p[1] for p in corners])
+            ring = [[round(a, 6), round(b, 6)] for a, b in zip(lon, lat, strict=True)]
+            tiles.append({"label": f"{string.ascii_uppercase[r]}{c + 1}", "ring": ring + ring[:1]})
+    return tiles
 
 
 @router.post("/models")
