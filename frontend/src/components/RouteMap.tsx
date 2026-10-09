@@ -4,21 +4,25 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 // let Vite build the worker and hand its URL over explicitly.
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import { useEffect, useRef } from 'react'
-import type { BBox, RouteLine, UploadedTrack } from '../api'
+import type { BBox, RouteLine, TileOutline, UploadedTrack } from '../api'
 
 maplibregl.setWorkerUrl(workerUrl)
 
 interface Props {
   track: UploadedTrack
-  frame: BBox | null
+  // Print area outline (lon, lat ring); the route's bbox until it is known.
+  frame: [number, number][] | null
   // Route cutter: the portion to print; the rest of the route is drawn faded.
   selection: RouteLine | null
+  // Grid splitting: outlines of the printed tiles (empty when the model fits the bed).
+  tiles: TileOutline[]
 }
 
 interface Drawn {
   track: UploadedTrack
-  frame: BBox | null
+  frame: [number, number][] | null
   selection: RouteLine | null
+  tiles: TileOutline[]
 }
 
 const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
@@ -44,41 +48,59 @@ const STYLE: maplibregl.StyleSpecification = {
   layers: [{ id: 'topo', type: 'raster', source: 'topo' }],
 }
 
-function framePolygon(b: BBox): GeoJSON.Feature<GeoJSON.Polygon> {
-  const [w, s, e, n] = b
+function bboxRing([w, s, e, n]: BBox): [number, number][] {
+  return [
+    [w, s],
+    [e, s],
+    [e, n],
+    [w, n],
+    [w, s],
+  ]
+}
+
+function framePolygon(ring: [number, number][]): GeoJSON.Feature<GeoJSON.Polygon> {
+  return { type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [ring] } }
+}
+
+function tileLines(tiles: TileOutline[]): GeoJSON.FeatureCollection {
   return {
-    type: 'Feature',
-    properties: {},
-    geometry: {
-      type: 'Polygon',
-      coordinates: [
-        [
-          [w, s],
-          [e, s],
-          [e, n],
-          [w, n],
-          [w, s],
-        ],
-      ],
-    },
+    type: 'FeatureCollection',
+    features: tiles.map((t) => ({
+      type: 'Feature',
+      properties: { label: t.label },
+      geometry: { type: 'LineString', coordinates: t.ring },
+    })),
   }
 }
 
-function draw(m: maplibregl.Map, { track, frame, selection }: Drawn) {
+function draw(m: maplibregl.Map, { track, frame, selection, tiles }: Drawn) {
   const source = (id: string) => m.getSource(id) as maplibregl.GeoJSONSource
   source('route').setData(selection ?? track.geojson)
   source('route-full').setData(selection ? track.geojson : EMPTY)
-  source('frame').setData(framePolygon(frame ?? track.bbox))
+  source('frame').setData(framePolygon(frame ?? bboxRing(track.bbox)))
+  source('tiles').setData(tileLines(tiles))
 }
 
-export function RouteMap({ track, frame, selection }: Props) {
+// Tile labels as HTML markers: the raster style has no fonts for map text.
+function tileMarkers(m: maplibregl.Map, tiles: TileOutline[]): maplibregl.Marker[] {
+  return tiles.map((t) => {
+    const lon = t.ring.slice(0, 4).reduce((a, p) => a + p[0], 0) / 4
+    const lat = t.ring.slice(0, 4).reduce((a, p) => a + p[1], 0) / 4
+    const el = document.createElement('div')
+    el.className = 'tile-label'
+    el.textContent = t.label
+    return new maplibregl.Marker({ element: el }).setLngLat([lon, lat]).addTo(m)
+  })
+}
+
+export function RouteMap({ track, frame, selection, tiles }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const map = useRef<maplibregl.Map | null>(null)
   const loaded = useRef(false)
   // Latest data to draw; applied as soon as the map style has loaded.
-  const latest = useRef<Drawn>({ track, frame, selection })
+  const latest = useRef<Drawn>({ track, frame, selection, tiles })
   useEffect(() => {
-    latest.current = { track, frame, selection }
+    latest.current = { track, frame, selection, tiles }
   })
 
   // Create the map once.
@@ -96,6 +118,7 @@ export function RouteMap({ track, frame, selection }: Props) {
       m.addSource('frame', { type: 'geojson', data: EMPTY })
       m.addSource('route', { type: 'geojson', data: EMPTY })
       m.addSource('route-full', { type: 'geojson', data: EMPTY })
+      m.addSource('tiles', { type: 'geojson', data: EMPTY })
       m.addLayer({
         id: 'frame-fill',
         type: 'fill',
@@ -107,6 +130,12 @@ export function RouteMap({ track, frame, selection }: Props) {
         type: 'line',
         source: 'frame',
         paint: { 'line-color': '#2f6fde', 'line-width': 2, 'line-dasharray': [3, 2] },
+      })
+      m.addLayer({
+        id: 'tiles',
+        type: 'line',
+        source: 'tiles',
+        paint: { 'line-color': '#2f6fde', 'line-width': 1.5 },
       })
       m.addLayer({
         id: 'route-full',
@@ -140,10 +169,17 @@ export function RouteMap({ track, frame, selection }: Props) {
     }
   }, [])
 
-  // Route and print area.
+  // Route, print area and tile grid.
   useEffect(() => {
-    if (map.current && loaded.current) draw(map.current, { track, frame, selection })
-  }, [track, frame, selection])
+    if (map.current && loaded.current) draw(map.current, { track, frame, selection, tiles })
+  }, [track, frame, selection, tiles])
+
+  // Tile labels.
+  useEffect(() => {
+    if (!map.current) return
+    const markers = tileMarkers(map.current, tiles)
+    return () => markers.forEach((marker) => marker.remove())
+  }, [tiles])
 
   // Zoom to the print area when a new track arrives.
   useEffect(() => {

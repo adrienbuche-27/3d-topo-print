@@ -42,6 +42,7 @@ from .tiles import DEFAULT_MAX_TILE_MM, grid_size
 MAX_GPX_BYTES = 20 * 1024 * 1024
 MAX_SIZE_MM = 1000  # larger than the bed: printed as a grid of tiles
 MAX_GRID = 8  # tile labels go from A1 to H8
+BED_MM = 256  # Bambu Lab A1 print bed
 KEEP_TRACKS = 20
 KEEP_MODELS = 5
 
@@ -195,10 +196,13 @@ def frame(
         cols, rows = grid_cols, grid_rows
     else:
         cols, rows = grid_size(width_mm, height_mm, max_tile_mm)
+    tile_w, tile_h = width_mm / cols, height_mm / rows
     return {
         "grid": [cols, rows],
-        "tile_mm": [round(width_mm / cols, 1), round(height_mm / rows, 1)],
-        "tiles": _tile_outlines(f, cols, rows),
+        "tile_mm": [round(tile_w, 1), round(tile_h, 1)],
+        "fits_bed": max(tile_w, tile_h) <= BED_MM,
+        "tiles": _tile_outlines(f, cols, rows) if cols * rows > 1 else [],
+        "outline": _tile_outlines(f, 1, 1)[0]["ring"],
         "bbox": f.bbox_lonlat,
         "real_size_km": [round(f.width_m / 1000, 2), round(f.height_m / 1000, 2)],
         "size_mm": [round(f.width_m * scale, 1), round(f.height_m * scale, 1)],
@@ -208,9 +212,11 @@ def frame(
 
 
 def _tile_outlines(f: Frame, cols: int, rows: int) -> list[dict]:
-    """Tile rectangles in WGS84 for the map, labelled like the printed tiles."""
-    if cols * rows == 1:
-        return []
+    """Tile rectangles in WGS84 for the map, labelled like the printed tiles.
+
+    The print area is a rectangle in the local UTM projection, so on a north-up web
+    map it appears slightly rotated; these are its true corners.
+    """
     to_lonlat = from_crs(CRS.from_epsg(f.epsg))
     min_x, min_y, max_x, max_y = f.bounds_m
     xs = [min_x + (max_x - min_x) * c / cols for c in range(cols + 1)]
@@ -233,6 +239,16 @@ def _tile_outlines(f: Frame, cols: int, rows: int) -> list[dict]:
 @router.post("/models")
 async def create_model(body: ModelRequest, request: Request) -> dict:
     name, track = _selection(body.gpx_id, body.start_km, body.end_km)
+    if body.grid_cols and body.grid_rows:
+        f = compute_frame(track, margin_pct=body.margin_pct)
+        scale = body.size_mm / max(f.width_m, f.height_m)
+        tile_w, tile_h = f.width_m * scale / body.grid_cols, f.height_m * scale / body.grid_rows
+        if max(tile_w, tile_h) > BED_MM:
+            raise HTTPException(
+                422,
+                f"Tiles of {tile_w:.0f} x {tile_h:.0f} mm do not fit the {BED_MM} mm bed: "
+                "use more columns or rows.",
+            )
     try:
         model: BuiltModel = await run_in_threadpool(
             build, track, body.options(), name, _tile_source(request)

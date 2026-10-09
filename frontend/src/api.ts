@@ -30,12 +30,24 @@ export interface UploadedTrack {
   geojson: RouteLine
 }
 
+export interface TileOutline {
+  label: string
+  ring: [number, number][] // lon, lat
+}
+
 export interface Frame {
   bbox: BBox
   real_size_km: [number, number]
   size_mm: [number, number]
   scale: string
   selection: { stats: TrackStats; geojson: RouteLine }
+  // Grid splitting: [columns, rows]; tiles is empty when the model fits the bed.
+  grid: [number, number]
+  tile_mm: [number, number]
+  fits_bed: boolean
+  tiles: TileOutline[]
+  // True outline of the print area (a UTM rectangle, slightly rotated on the map).
+  outline: [number, number][]
 }
 
 /** Portion of the route to print, in km along it; null = the whole route. */
@@ -57,6 +69,10 @@ export interface ModelOptions {
   resolution_mm: number
   inlay_clearance_mm: number
   inlay_piece_height_mm: number
+  max_tile_mm: number
+  // Explicit grid (columns, rows); null = automatic from the tile size.
+  grid_cols: number | null
+  grid_rows: number | null
 }
 
 export interface ModelStats {
@@ -66,6 +82,9 @@ export interface ModelStats {
   terrain_volume_cm3: number
   route_volume_cm3: number
   route_parts: number
+  grid: [number, number]
+  tiles: { label: string; size_mm: [number, number, number] }[]
+  pins: number
   triangles: number
   build_seconds: number
 }
@@ -92,6 +111,9 @@ export const DEFAULT_OPTIONS: ModelOptions = {
   resolution_mm: 0.25,
   inlay_clearance_mm: 0.15,
   inlay_piece_height_mm: 6,
+  max_tile_mm: 240,
+  grid_cols: null,
+  grid_rows: null,
 }
 
 async function request<T>(input: string, init?: RequestInit): Promise<T> {
@@ -117,13 +139,16 @@ export function uploadGpx(file: File): Promise<UploadedTrack> {
   return request('/api/gpx', { method: 'POST', body: form })
 }
 
-export function getFrame(
-  gpxId: string,
-  marginPct: number,
-  sizeMm: number,
-  cut: Cut,
-): Promise<Frame> {
-  const params = new URLSearchParams({ margin_pct: String(marginPct), size_mm: String(sizeMm) })
+export function getFrame(gpxId: string, options: ModelOptions, cut: Cut): Promise<Frame> {
+  const params = new URLSearchParams({
+    margin_pct: String(options.margin_pct),
+    size_mm: String(options.size_mm),
+    max_tile_mm: String(options.max_tile_mm),
+  })
+  if (options.grid_cols && options.grid_rows) {
+    params.set('grid_cols', String(options.grid_cols))
+    params.set('grid_rows', String(options.grid_rows))
+  }
   for (const [key, value] of Object.entries(cutParams(cut))) params.set(key, String(value))
   return request(`/api/gpx/${gpxId}/frame?${params}`)
 }

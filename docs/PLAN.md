@@ -136,7 +136,7 @@ Print only part of a GPX, e.g. just the climb of a ride that goes up and down.
 - **Frontend**: elevation profile under the route stats with two handles (mouse, touch or arrow keys), hover crosshair with distance and elevation; stats, map (selection in orange, rest faded) and print area follow the selection; *Whole route* resets it.
 - Limitation: a GPX without elevations has no profile, so it can only be printed whole.
 
-## 6. Next feature: automatic grid splitting (v1.2)
+## 6. Automatic grid splitting (v1.2) — done
 
 For models much larger than the A1 bed (e.g. a 600 × 400 mm map of a long race), the app splits the model into a grid of tiles that each fit on the bed, then reassemble after printing.
 
@@ -163,7 +163,7 @@ For models much larger than the A1 bed (e.g. a 600 × 400 mm map of a long race)
 **Steps**
 - [x] **Step 12: Tiling core.** (`backend/app/tiles.py`) The elevation grid of the whole model is computed once; each tile takes a slice of it, sharing its edge nodes with its neighbours, and is built like a small model (blended or inlay) with the route clipped to the tile. Building per tile keeps memory bounded (a 400 mm model builds in 15–25 s). Inlay tiles cut their pieces from the whole model's heights, so piece boundaries agree across tiles. Labels A1… (rows from the north, columns from the west).
 - [x] **Step 13: Assembly aids.** Printed pins (owner's choice): Ø3 mm pins with a flat side to print lying down, two per shared edge (one on edges < 40 mm), in horizontal holes 5.5 mm deep with the inlay clearance, centred 2.6 mm above the bed. Split models use a 6 mm minimum base so the holes fit everywhere below the grooves. Tile label + north arrow engraved 0.6 mm deep underneath, mirrored to read from below (small stroke font, `engrave.py`).
-- [ ] **Step 14: Tiling UI & export.** Grid overlay on the map and in the 3D preview, grid override, zipped multi-3MF export + assembly diagram.
+- [x] **Step 14: Tiling UI & export.** Model size up to 1000 mm; tile grid and labels on the map (true UTM outlines); max tile size and manual grid in the advanced settings, with a guard against tiles larger than the bed; one Bambu project with one plate per tile (inlay: plus one per tile for its pieces) and a plate of pins, named plates; plain 3MF / STL spread the tiles apart. The map grid replaces the separate assembly diagram. Alpe d'Huez at 400 mm: 2 × 2 tiles, 21 s blended, 37 s inlay.
 
 ## 7. Backlog (later)
 

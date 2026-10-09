@@ -54,12 +54,12 @@ export default function App() {
   useEffect(() => {
     if (!track) return
     const timer = setTimeout(() => {
-      getFrame(track.gpx_id, options.margin_pct, options.size_mm, cut)
+      getFrame(track.gpx_id, options, cut)
         .then(setFrame)
         .catch(() => setFrame(null))
     }, 250)
     return () => clearTimeout(timer)
-  }, [track, options.margin_pct, options.size_mm, cut])
+  }, [track, options, cut])
 
   async function onFile(file: File) {
     setUploading(true)
@@ -165,7 +165,24 @@ export default function App() {
                 {frame.real_size_km[1]} km · scale {frame.scale}
               </p>
             )}
-            <button type="button" className="primary" onClick={onGenerate} disabled={building}>
+            {frame && !frame.fits_bed && (
+              <p className="error" role="alert">
+                Tiles of {frame.tile_mm[0]} × {frame.tile_mm[1]} mm do not fit the 256 mm bed: use
+                more columns or rows, or the automatic grid.
+              </p>
+            )}
+            {frame && frame.fits_bed && frame.tiles.length > 0 && (
+              <p className="notice notice--info">
+                Printed as {frame.grid[0]} × {frame.grid[1]} tiles of about {frame.tile_mm[0]} ×{' '}
+                {frame.tile_mm[1]} mm, joined with printed pins (min. base 6 mm).
+              </p>
+            )}
+            <button
+              type="button"
+              className="primary"
+              onClick={onGenerate}
+              disabled={building || frame?.fits_bed === false}
+            >
               {building ? 'Generating… (5–20 s)' : model ? 'Regenerate model' : 'Generate model'}
             </button>
           </section>
@@ -191,8 +208,12 @@ export default function App() {
                 </dd>
               </div>
               <div>
-                <dt>Terrain</dt>
-                <dd>{fmt(model.stats.terrain_volume_cm3, 'cm³')}</dd>
+                <dt>{model.stats.tiles.length > 0 ? 'Tiles' : 'Terrain'}</dt>
+                <dd>
+                  {model.stats.tiles.length > 0
+                    ? `${model.stats.grid[0]} × ${model.stats.grid[1]}`
+                    : fmt(model.stats.terrain_volume_cm3, 'cm³')}
+                </dd>
               </div>
             </dl>
             <a className="primary" href={model.downloads.bambu} download>
@@ -200,9 +221,13 @@ export default function App() {
             </a>
             <p className="hint">
               Open it with <em>File → Open Project</em> (not Import).{' '}
-              {model.mode === 'inlay'
-                ? 'Terrain is on plate 1, route pieces on plate 2.'
-                : 'Terrain uses filament 1, route filament 2.'}
+              {model.stats.tiles.length > 0
+                ? `One plate per tile (A1 = north-west corner)${
+                    model.mode === 'inlay' ? ', each followed by its route pieces' : ''
+                  }, then the ${model.stats.pins} alignment pins. Labels are engraved under each tile.`
+                : model.mode === 'inlay'
+                  ? 'Terrain is on plate 1, route pieces on plate 2.'
+                  : 'Terrain uses filament 1, route filament 2.'}
             </p>
             <div className="secondary-downloads">
               <a href={model.downloads['3mf']} download>
@@ -252,8 +277,9 @@ export default function App() {
             <div className="view" hidden={view !== 'map'}>
               <RouteMap
                 track={track}
-                frame={frame?.bbox ?? null}
+                frame={frame?.outline ?? null}
                 selection={cut && frame ? frame.selection.geojson : null}
+                tiles={frame?.tiles ?? []}
               />
             </div>
             {model && view === '3d' && (

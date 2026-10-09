@@ -197,3 +197,16 @@ def test_large_model_is_split_into_tiles(client: TestClient, gpx_id: str) -> Non
         "/api/models", json={"gpx_id": gpx_id, "grid_cols": 2, "grid_rows": 1, **FAST}
     ).json()
     assert body["stats"]["grid"] == [2, 1]
+
+
+def test_tiles_must_fit_the_bed(client: TestClient, gpx_id: str) -> None:
+    # 600 mm in one column of two rows: 600 x ~250 mm tiles.
+    params = {"size_mm": 600, "grid_cols": 1, "grid_rows": 2}
+    frame = client.get(f"/api/gpx/{gpx_id}/frame", params=params).json()
+    assert frame["fits_bed"] is False
+    response = client.post("/api/models", json={"gpx_id": gpx_id, **params})
+    assert response.status_code == 422
+    assert "bed" in response.json()["detail"]
+    ok = client.get(f"/api/gpx/{gpx_id}/frame", params={"size_mm": 600}).json()
+    assert ok["fits_bed"] is True and ok["grid"] == [3, 3]
+    assert len(ok["outline"]) == 5

@@ -98,10 +98,10 @@ export function ParamsPanel({ options, onChange }: Props) {
 
       <Slider
         label="Model size"
-        hint="Longest side. Bigger prints separate tight hairpins better."
+        hint="Longest side. Above the tile size, the model is printed as a grid of tiles."
         value={options.size_mm}
         min={60}
-        max={250}
+        max={1000}
         step={5}
         unit="mm"
         onChange={(v) => set('size_mm', v)}
@@ -208,6 +208,57 @@ export function ParamsPanel({ options, onChange }: Props) {
             unit="mm"
             onChange={(v) => set('resolution_mm', v)}
           />
+          <Slider
+            label="Max tile size"
+            hint="Large models are split into tiles up to this size (A1 bed: 256 mm)."
+            value={options.max_tile_mm}
+            min={120}
+            max={250}
+            step={5}
+            unit="mm"
+            onChange={(v) => set('max_tile_mm', v)}
+          />
+          <div className="field">
+            <span className="field__row">
+              <span className="field__label">Tile grid</span>
+              <label className="field__value">
+                <input
+                  type="checkbox"
+                  checked={options.grid_cols === null}
+                  onChange={(e) =>
+                    onChange({
+                      ...options,
+                      grid_cols: e.target.checked ? null : 2,
+                      grid_rows: e.target.checked ? null : 1,
+                    })
+                  }
+                />
+                automatic
+              </label>
+            </span>
+            {options.grid_cols !== null && (
+              <span className="field__row grid-input">
+                <input
+                  type="number"
+                  aria-label="Columns"
+                  min={1}
+                  max={8}
+                  value={options.grid_cols}
+                  onChange={(e) => set('grid_cols', Math.max(1, e.target.valueAsNumber || 1))}
+                />
+                columns ×
+                <input
+                  type="number"
+                  aria-label="Rows"
+                  min={1}
+                  max={8}
+                  value={options.grid_rows ?? 1}
+                  onChange={(e) => set('grid_rows', Math.max(1, e.target.valueAsNumber || 1))}
+                />
+                rows
+              </span>
+            )}
+          </div>
           <button
             type="button"
             className="link"

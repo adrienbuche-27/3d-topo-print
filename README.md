@@ -6,6 +6,7 @@ A web app to design 3D-printable terrain models of a place, with a GPX route —
 
 - Upload a GPX file; the terrain is framed automatically around the route.
 - Route cutter: print only part of a route (e.g. just the climb), chosen on its elevation profile.
+- Large prints: models bigger than the bed (up to 1000 mm) are split into a grid of tiles, joined with printed pins.
 - Real elevation data (Copernicus GLO-30, 30 m resolution, worldwide), downloaded and cached automatically.
 - Two print modes:
   - **Blended** — terrain and route printed together in two colours with the AMS.
@@ -115,6 +116,19 @@ Best for: large or high-relief models.
 
 **Fit test** — before a big inlay print, print the *Fit test* (40 × 24 mm block with an S-shaped route over two pieces, using your width, clearance and piece height). 0.15 mm clearance fits well on the A1 with PLA.
 
+### Large prints (grid splitting)
+
+When the model is larger than the max tile size (240 mm), it is printed as a grid of tiles, shown on the map with their labels:
+
+- Tiles are labelled like a map grid: rows **A, B, C…** from north to south, columns **1, 2, 3…** from west to east (A1 = north-west corner). The label and a north arrow are engraved under each tile.
+- Neighbouring tiles share their edge exactly (same terrain grid), so they join without a step, and the route continues across the seam.
+- **Printed pins** align the tiles: two Ø3 mm pins per shared edge, in holes at the bottom of the edges (same clearance as the inlay). The pins have a flat side and print lying down. Split models use a 6 mm minimum base so the holes always fit.
+- Works in both modes; in inlay mode each tile has its own route pieces.
+- The Bambu Studio project has **one plate per tile** (inlay: each followed by a plate with its route pieces), then a plate of alignment pins.
+- A manual grid whose tiles would not fit the 256 mm bed is refused.
+
+Heights scale with the model: at 400 mm and 1.5× exaggeration, Alpe d'Huez tiles are up to 178 mm tall — consider a lower exaggeration for big models, and a larger piece height in inlay mode (more pieces otherwise).
+
 ---
 
 ## Settings
@@ -122,7 +136,7 @@ Best for: large or high-relief models.
 | Setting | Default | What it does |
 |---|---|---|
 | Mode | Blended | Blended or inlay, see above. |
-| Model size | 180 mm | Length of the model's **longest side** (max 250 mm on the A1 for now). A bigger print separates tight hairpins better. |
+| Model size | 180 mm | Length of the model's **longest side**, up to 1000 mm. Above the tile size the model is [split into tiles](#large-prints-grid-splitting). A bigger print separates tight hairpins better. |
 | Map margin | 10 % | Terrain shown around the route, as a % of the route's larger extent, added on every side. More margin = wider map but smaller scale. |
 | Vertical exaggeration | 1.5× | Multiplies heights. 1× is true scale; 1.5–2× reads better on gentle terrain; high mountains may need less. |
 | Route width | 1.2 mm (blended), 1.6 mm (inlay) | Width of the route band. In inlay mode this is the slot width; pieces are 2 × clearance narrower. Use multiples of the 0.4 mm nozzle. |
@@ -132,6 +146,8 @@ Best for: large or high-relief models.
 | Route raise *(advanced)* | 0.6 mm | How far the route stands above the terrain. |
 | Groove depth *(advanced)* | 1 mm | How deep the route sits into the terrain. Must be less than the base thickness. |
 | Detail *(advanced)* | 0.25 mm | Spacing of the terrain grid. Finer = more detail, slower, bigger files. |
+| Max tile size *(advanced)* | 240 mm | Largest tile of a split model (A1 bed: 256 mm). |
+| Tile grid *(advanced)* | automatic | Smallest grid whose tiles fit the max tile size, or a fixed columns × rows grid. |
 
 ---
 
@@ -185,6 +201,7 @@ Copernicus GLO-30 tiles ─► mosaic ─► heightfield (grid in print mm)
 | `terrain.py`, `mesh.py` | Terrain surface and watertight solids from height grids. |
 | `route.py` | Route centrelines and band footprint; blended mode groove and insert (boolean operations with manifold3d). |
 | `inlay.py` | Inlay mode: Voronoi split of the route band along the centreline, stepped slots, pieces; fit test. |
+| `tiles.py`, `engrave.py` | Grid splitting: tiles from the whole-model elevation grid, pins and engraved labels. |
 | `export.py` | Print layouts; plain 3MF, STL zip, GLB preview. |
 | `bambu/` | Bambu Studio project writer and its preset template (`project_settings.config`). |
 | `pipeline.py`, `api.py` | End-to-end build and the HTTP API. |
@@ -202,8 +219,8 @@ The backend runs on http://localhost:8000; interactive docs at http://localhost:
 | Method | Path | Purpose |
 |---|---|---|
 | POST | `/api/gpx` | Upload a GPX (multipart `file`). Returns `gpx_id`, name, stats, length, elevation profile, bbox and the track as GeoJSON. |
-| GET | `/api/gpx/{gpx_id}/frame?margin_pct=&size_mm=&start_km=&end_km=` | Print area and model footprint for a margin and size, and the selected portion of the route (stats + GeoJSON). |
-| POST | `/api/models` | Build a model. JSON body: `gpx_id`, `mode`, optional `start_km` / `end_km` (route cutter) and the [settings](#settings) (`size_mm`, `margin_pct`, `z_exaggeration`, `route_width_mm`, `base_mm`, `route_raise_mm`, `groove_depth_mm`, `resolution_mm`, `inlay_clearance_mm`, `inlay_piece_height_mm`). Returns `model_id`, stats and URLs. |
+| GET | `/api/gpx/{gpx_id}/frame?margin_pct=&size_mm=&start_km=&end_km=&max_tile_mm=&grid_cols=&grid_rows=` | Print area (outline) and model footprint for a margin and size, the selected portion of the route (stats + GeoJSON), and the tile grid (outlines, labels, whether tiles fit the bed). |
+| POST | `/api/models` | Build a model. JSON body: `gpx_id`, `mode`, optional `start_km` / `end_km` (route cutter), `max_tile_mm` / `grid_cols` / `grid_rows` (grid splitting) and the [settings](#settings) (`size_mm`, `margin_pct`, `z_exaggeration`, `route_width_mm`, `base_mm`, `route_raise_mm`, `groove_depth_mm`, `resolution_mm`, `inlay_clearance_mm`, `inlay_piece_height_mm`). Returns `model_id`, stats and URLs. |
 | GET | `/api/models/{model_id}/preview.glb` | Simplified mesh for the 3D preview. |
 | GET | `/api/models/{model_id}/download?format=bambu\|3mf\|stl` | Printable files. |
 | GET | `/api/fit-test?format=&route_width_mm=&inlay_clearance_mm=&inlay_piece_height_mm=` | Inlay fit test. |
