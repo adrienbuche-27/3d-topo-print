@@ -41,18 +41,21 @@ class ModelParts:
     route: Manifold
 
 
-def route_footprint(track: Track, hf: Heightfield, width_mm: float) -> shapely.Geometry:
-    """2D outline of the route band in print millimetres (round caps and joins)."""
+def route_centerlines(track: Track, hf: Heightfield) -> list[LineString]:
+    """Route centrelines in print millimetres, one per GPX segment."""
     tolerance_m = SIMPLIFY_TOLERANCE_MM / hf.scale
     simplified = simplify_track(track, tolerance_m)
     fwd = to_crs(CRS.from_epsg(hf.frame.epsg))
-
     lines = []
     for seg in simplified.segments:
         x, y = fwd.transform([p.lon for p in seg], [p.lat for p in seg])
         px, py = hf.to_print_xy(np.asarray(x), np.asarray(y))
         lines.append(LineString(np.column_stack([px, py])))
+    return lines
 
+
+def band_footprint(lines: list[LineString], width_mm: float, hf: Heightfield) -> shapely.Geometry:
+    """2D outline of the route band (round caps and joins), trimmed near the model edges."""
     band = MultiLineString(lines).buffer(width_mm / 2, quad_segs=4)
     # Keep a little beyond the model edge; the cut against the terrain trims it exactly.
     o = OVERHANG_MM
@@ -60,6 +63,11 @@ def route_footprint(track: Track, hf: Heightfield, width_mm: float) -> shapely.G
     if band.is_empty:
         raise RouteError("The route does not cross the print area.")
     return band
+
+
+def route_footprint(track: Track, hf: Heightfield, width_mm: float) -> shapely.Geometry:
+    """2D outline of the route band in print millimetres."""
+    return band_footprint(route_centerlines(track, hf), width_mm, hf)
 
 
 def cross_section(footprint: shapely.Geometry) -> CrossSection:

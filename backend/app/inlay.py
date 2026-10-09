@@ -4,36 +4,44 @@ The route insert of the blended mode floats in 3D and cannot be printed on its
 own. Here the route is split into short pieces, each with a flat bottom, so
 every piece prints flat on the bed without supports:
 
-- The route band is cut into elevation bands of `inlay_piece_height_mm` along
-  the terrain's contour lines. Each connected part of a band is one piece.
-- A piece's flat bottom sits `groove_depth_mm` below the band's lowest
-  contour; its top follows the terrain plus `route_raise_mm`.
-- The terrain gets a slot per band with a matching flat floor, so the slot
-  floor steps up the mountain. Pieces are `inlay_clearance_mm` smaller than
-  their slot on every side.
+- Walking along the route centreline, a new piece starts each time the
+  terrain under it has changed by `inlay_piece_height_mm` (going up or down).
+  Each point of the route band belongs to its nearest centreline point, so the
+  cuts run square across the road and hairpin legs stay apart.
+- Each region between cuts gets a slot in the terrain with a flat floor
+  `groove_depth_mm` below its lowest point, so the slot floor steps up the
+  mountain. The piece is the region shrunk by `inlay_clearance_mm` on every
+  side: its flat bottom rests on the slot floor and its top follows the
+  terrain plus `route_raise_mm`.
 """
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 
 import numpy as np
 import shapely
-from manifold3d import CrossSection, JoinType, Manifold, OpType
+from manifold3d import JoinType, Manifold, OpType
+from scipy.interpolate import RegularGridInterpolator
+from scipy.spatial import cKDTree
+from shapely.geometry import LineString
 
 from .route import (
     CLEAN_TOLERANCE_MM,
     OVERHANG_MM,
     RouteError,
     cross_section,
-    padded_solid,
     raised_solid,
 )
 from .terrain import ModelParams, Surface, terrain_solid
 
 # Pieces smaller than this are dropped: they would be lost on the bed (their slot stays).
 MIN_PIECE_VOLUME_MM3 = 1.0
+# Sampling step along the centreline when looking for cut positions.
+CUT_SAMPLING_MM = 0.2
+# Slot cutters are widened by this much so neighbouring ones overlap slightly and no
+# sliver of terrain is left standing between them.
+SLOT_OVERLAP_MM = 0.01
 
 
 @dataclass
@@ -52,56 +60,121 @@ class InlayParts:
     pieces: list[InlayPiece]
 
 
-def band_levels(z_min: float, z_max: float, piece_height: float) -> list[float]:
-    """Lower contour of each elevation band, from z_min upward, covering z_max."""
-    count = max(1, math.ceil((z_max - z_min) / piece_height - 1e-9))
-    return [z_min + k * piece_height for k in range(count)]
+class _SurfaceHeight:
+    """Terrain height (print mm) at arbitrary x/y."""
+
+    def __init__(self, surface: Surface) -> None:
+        # The interpolator needs increasing coordinates; ys run north → south.
+        self._f = RegularGridInterpolator(
+            (surface.ys[::-1], surface.xs), surface.z[::-1], bounds_error=False, fill_value=None
+        )
+
+    def __call__(self, xy: np.ndarray) -> np.ndarray:
+        return self._f(np.column_stack([xy[:, 1], xy[:, 0]]))
 
 
-def build_inlay(surface: Surface, footprint: shapely.Geometry, params: ModelParams) -> InlayParts:
+def cut_labels(xy: np.ndarray, z: np.ndarray, piece_height: float) -> np.ndarray:
+    """Piece number of each sample along a line: a new piece starts each time the
+    terrain has changed by `piece_height` since the start of the current one."""
+    labels = np.zeros(len(z), dtype=int)
+    label = 0
+    lo = hi = z[0]
+    for i in range(1, len(z)):
+        lo, hi = min(lo, z[i]), max(hi, z[i])
+        if hi - lo > piece_height:
+            label += 1
+            lo = hi = z[i]
+        labels[i] = label
+    return labels
+
+
+def split_regions(
+    footprint: shapely.Geometry,
+    lines: list[LineString],
+    height: _SurfaceHeight,
+    params: ModelParams,
+) -> list[shapely.Polygon]:
+    """Split the route band into regions covering at most `inlay_piece_height_mm` of relief.
+
+    Every point of the band belongs to its nearest centreline sample (a Voronoi
+    partition), and samples are grouped into pieces along the route. On a
+    straight road the boundaries are square across it; at hairpins each leg
+    keeps its own region. Where the road is ridden twice (up and down), only the
+    first pass is used.
+    """
+    points, labels = [], []
+    next_label = 0
+    for line in lines:
+        n = max(int(line.length / CUT_SAMPLING_MM), 1) + 1
+        xy = np.array([line.interpolate(v).coords[0] for v in np.linspace(0, line.length, n)])
+        line_labels = cut_labels(xy, height(xy), params.inlay_piece_height_mm) + next_label
+        next_label = int(line_labels.max()) + 1
+        points.append(xy)
+        labels.append(line_labels)
+    xy = np.concatenate(points)
+    label = np.concatenate(labels)
+
+    # Drop samples where an earlier, distant part of the route already passed.
+    tree = cKDTree(xy)
+    keep = np.ones(len(xy), dtype=bool)
+    same_pass = 2 * params.route_width_mm / CUT_SAMPLING_MM  # samples
+    for i, neighbours in enumerate(tree.query_ball_point(xy, params.route_width_mm / 2)):
+        if any(j < i - same_pass and keep[j] for j in neighbours):
+            keep[i] = False
+    xy, label = xy[keep], label[keep]
+
+    cells = shapely.voronoi_polygons(
+        shapely.MultiPoint(xy), extend_to=footprint.envelope.buffer(10), ordered=True
+    )
+    regions = []
+    for value in np.unique(label):
+        group = shapely.unary_union([cells.geoms[i] for i in np.flatnonzero(label == value)])
+        part = group.intersection(footprint)
+        regions.extend(g for g in getattr(part, "geoms", [part]) if g.geom_type == "Polygon")
+    return regions
+
+
+def _min_height(region: shapely.Polygon, height: _SurfaceHeight, surface: Surface) -> float:
+    """Lowest terrain height over a region: grid nodes inside it plus its outline."""
+    x0, y0, x1, y1 = region.bounds
+    xs = surface.xs[(surface.xs >= x0) & (surface.xs <= x1)]
+    ys = surface.ys[(surface.ys >= y0) & (surface.ys <= y1)]
+    samples = [np.asarray(region.exterior.segmentize(CUT_SAMPLING_MM).coords)]
+    if len(xs) and len(ys):
+        gx, gy = np.meshgrid(xs, ys)
+        inside = shapely.contains_xy(region, gx, gy)
+        samples.append(np.column_stack([gx[inside], gy[inside]]))
+    return float(height(np.concatenate(samples)).min())
+
+
+def build_inlay(
+    surface: Surface,
+    footprint: shapely.Geometry,
+    lines: list[LineString],
+    params: ModelParams,
+) -> InlayParts:
     """Terrain with stepped slots, and flat-bottomed route pieces that fit them."""
     if params.groove_depth_mm >= params.base_mm:
         raise RouteError("The groove must be shallower than the base thickness.")
     if params.inlay_piece_height_mm <= 0:
         raise RouteError("The piece height must be positive.")
 
-    o = OVERHANG_MM
+    height = _SurfaceHeight(surface)
     terrain = terrain_solid(surface)
     raised = raised_solid(surface, params.route_raise_mm)
-    # Padded copy of the terrain: its contour slices reach past the model edges, so
-    # slot walls never coincide with the terrain's outer walls.
-    contour_source = padded_solid(surface, 0.0)
-
-    slot_outline = cross_section(footprint)
-    z_min, z_max = _surface_range_under(surface, footprint)
-    levels = band_levels(z_min, z_max, params.inlay_piece_height_mm)
-    top = float(surface.z.max()) + params.route_raise_mm + o
-
-    (x0, y0), (x1, y1) = _bounds(surface)
-    everything = CrossSection.square((x1 - x0 + 4 * o, y1 - y0 + 4 * o)).translate(
-        (x0 - 2 * o, y0 - 2 * o)
-    )
+    top = float(surface.z.max()) + params.route_raise_mm + OVERHANG_MM
 
     cutters = []
     pieces: list[InlayPiece] = []
-    for k, level in enumerate(levels):
-        # Region where the terrain lies in [level, next level): the lowest band also takes
-        # anything below z_min, the highest anything above its top.
-        above = everything if k == 0 else contour_source.slice(level)
-        if k + 1 < len(levels):
-            above = above - contour_source.slice(levels[k + 1])
-        slot = slot_outline ^ above
-        if slot.is_empty():
-            continue
+    for region in split_regions(footprint, lines, height, params):
+        bottom = _min_height(region, height, surface) - params.groove_depth_mm
+        slot = cross_section(region.buffer(SLOT_OVERLAP_MM, join_style=2))
+        cutters.append(Manifold.extrude(slot, top - bottom).translate((0, 0, bottom)))
 
-        bottom = level - params.groove_depth_mm
-        height = top - bottom
-        cutters.append(Manifold.extrude(slot, height).translate((0, 0, bottom)))
-
-        insert = slot.offset(-params.inlay_clearance_mm, JoinType.Round)
+        insert = cross_section(region).offset(-params.inlay_clearance_mm, JoinType.Round)
         if insert.is_empty():
             continue
-        solid = Manifold.extrude(insert, height).translate((0, 0, bottom)) ^ raised
+        solid = Manifold.extrude(insert, top - bottom).translate((0, 0, bottom)) ^ raised
         for part in solid.decompose():
             if part.volume() >= MIN_PIECE_VOLUME_MM3:
                 pieces.append(InlayPiece(solid=part.simplify(CLEAN_TOLERANCE_MM), bottom_z=bottom))
@@ -112,39 +185,22 @@ def build_inlay(surface: Surface, footprint: shapely.Geometry, params: ModelPara
     return InlayParts(terrain=terrain, pieces=pieces)
 
 
-def _bounds(surface: Surface) -> tuple[tuple[float, float], tuple[float, float]]:
-    return (float(surface.xs[0]), float(surface.ys[-1])), (
-        float(surface.xs[-1]),
-        float(surface.ys[0]),
-    )
-
-
-def _surface_range_under(surface: Surface, footprint: shapely.Geometry) -> tuple[float, float]:
-    """Lowest and highest terrain height at the grid nodes inside the route band."""
-    gx, gy = np.meshgrid(surface.xs, surface.ys)
-    inside = shapely.contains_xy(footprint, gx, gy)
-    if not inside.any():  # band narrower than the grid: fall back to the nearest nodes
-        inside = shapely.contains_xy(footprint.buffer(max(np.diff(surface.xs))), gx, gy)
-    z = surface.z[inside]
-    return float(z.min()), float(z.max())
-
-
 def build_fit_test(params: ModelParams) -> InlayParts:
     """Small calibration print for the inlay fit: a 40 x 24 mm block on a slope.
 
-    An S-shaped route crosses the slope over two elevation bands, so the test
-    covers curves, a slot floor step and the gap between two pieces, all with
-    the same width, clearance and depths as the real model.
+    An S-shaped route climbs the slope over two pieces, so the test covers
+    curves, a slot floor step and the gap between two pieces, all with the
+    same width, clearance and depths as the real model.
     """
     width, depth, spacing = 40.0, 24.0, 0.25
     xs = np.linspace(0.0, width, round(width / spacing) + 1)
     ys = np.linspace(depth, 0.0, round(depth / spacing) + 1)
-    # Slope rising along x, so the S-curve climbs 1.5 piece heights.
+    # Slope rising along x: the S-curve climbs 1.5 piece heights.
     rise = 1.5 * params.inlay_piece_height_mm
     z = params.base_mm + np.tile(xs / width * rise, (len(ys), 1))
     surface = Surface(xs=xs, ys=ys, z=z)
 
     t = np.linspace(0.0, 1.0, 60)
-    path = shapely.LineString(np.column_stack([5 + 30 * t, depth / 2 + 6 * np.sin(2 * np.pi * t)]))
+    path = LineString(np.column_stack([5 + 30 * t, depth / 2 + 6 * np.sin(2 * np.pi * t)]))
     footprint = path.buffer(params.route_width_mm / 2, quad_segs=4)
-    return build_inlay(surface, footprint, params)
+    return build_inlay(surface, footprint, [path], params)
