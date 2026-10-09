@@ -6,9 +6,18 @@ import lib3mf
 import pytest
 import trimesh
 
-from app.export import ROUTE_COLOR, TERRAIN_COLOR, to_3mf, to_glb, to_stl_zip
+from app.export import (
+    ROUTE_COLOR,
+    TERRAIN_COLOR,
+    blended_layout,
+    inlay_layout,
+    to_3mf,
+    to_glb,
+    to_stl_zip,
+)
 from app.gpx import compute_frame, load_gpx
 from app.heightfield import build_heightfield
+from app.inlay import build_fit_test
 from app.route import ModelParts, build_model
 from app.terrain import ModelParams
 from tests.synthetic import FakeSource, write_tile
@@ -29,7 +38,7 @@ def parts(tmp_path_factory: pytest.TempPathFactory) -> ModelParts:
 
 def test_3mf_is_valid_for_the_reference_reader(parts: ModelParts, tmp_path: Path) -> None:
     path = tmp_path / "model.3mf"
-    path.write_bytes(to_3mf(parts, name="Test & <loop>"))
+    path.write_bytes(to_3mf(blended_layout(parts, name="Test & <loop>")))
 
     model = lib3mf.get_wrapper().CreateModel()
     reader = model.QueryReader("3mf")
@@ -58,7 +67,7 @@ def test_3mf_is_valid_for_the_reference_reader(parts: ModelParts, tmp_path: Path
 
 def test_3mf_parts_survive_vertex_merging(parts: ModelParts) -> None:
     # Readers that merge vertices by position must still see closed solids.
-    scene = trimesh.load(io.BytesIO(to_3mf(parts)), file_type="3mf", force="scene")
+    scene = trimesh.load(io.BytesIO(to_3mf(blended_layout(parts))), file_type="3mf", force="scene")
     assert sorted(scene.geometry) == ["route", "terrain"]
     for mesh in scene.geometry.values():
         assert mesh.is_watertight
@@ -67,7 +76,7 @@ def test_3mf_parts_survive_vertex_merging(parts: ModelParts) -> None:
 
 
 def test_stl_zip(parts: ModelParts) -> None:
-    with zipfile.ZipFile(io.BytesIO(to_stl_zip(parts, name="loop"))) as zf:
+    with zipfile.ZipFile(io.BytesIO(to_stl_zip(blended_layout(parts), name="loop"))) as zf:
         assert sorted(zf.namelist()) == ["loop_route.stl", "loop_terrain.stl"]
         for name in zf.namelist():
             mesh = trimesh.load(io.BytesIO(zf.read(name)), file_type="stl")
@@ -75,9 +84,31 @@ def test_stl_zip(parts: ModelParts) -> None:
 
 
 def test_glb_preview(parts: ModelParts) -> None:
-    scene = trimesh.load(io.BytesIO(to_glb(parts)), file_type="glb", force="scene")
+    scene = trimesh.load(io.BytesIO(to_glb(blended_layout(parts))), file_type="glb", force="scene")
     assert sorted(scene.geometry) == ["route", "terrain"]
     terrain = scene.geometry["terrain"]
     route = scene.geometry["route"]
     assert tuple(terrain.visual.main_color) == TERRAIN_COLOR
     assert tuple(route.visual.main_color) == ROUTE_COLOR
+
+
+def test_inlay_layout_puts_pieces_beside_the_terrain(tmp_path: Path) -> None:
+    inlay = build_fit_test(ModelParams())
+    layout = inlay_layout(inlay)
+    assert [obj.name for obj in layout] == ["terrain", "route pieces"]
+    assert [name for name, _ in layout[1].parts] == ["piece 1", "piece 2"]
+
+    path = tmp_path / "inlay.3mf"
+    path.write_bytes(to_3mf(layout))
+    model = lib3mf.get_wrapper().CreateModel()
+    model.QueryReader("3mf").ReadFromFile(str(path))
+    assert model.GetBuildItems().Count() == 2
+
+    # Meshes with their build-item placement applied; the terrain is the largest one.
+    scene = trimesh.load(io.BytesIO(to_3mf(layout)), file_type="3mf", force="scene")
+    meshes = sorted(scene.dump(concatenate=False), key=lambda m: m.volume, reverse=True)
+    terrain, pieces = meshes[0], meshes[1:]
+    assert len(pieces) == 2
+    for mesh in pieces:
+        assert mesh.bounds[0][0] > terrain.bounds[1][0]  # beside the terrain, not overlapping
+        assert mesh.bounds[0][2] == pytest.approx(0, abs=1e-4)  # lying on the bed

@@ -18,6 +18,9 @@ class ModelParams:
     route_width_mm: float = 1.2
     route_raise_mm: float = 0.6  # how far the route stands above the terrain
     groove_depth_mm: float = 1.0  # how deep the route sits into the terrain
+    # Inlay mode (route printed separately) only:
+    inlay_clearance_mm: float = 0.15  # gap between a piece and its slot, per side
+    inlay_piece_height_mm: float = 6.0  # terrain relief covered by one piece
 
 
 @dataclass

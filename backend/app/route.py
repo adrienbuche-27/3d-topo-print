@@ -62,7 +62,7 @@ def route_footprint(track: Track, hf: Heightfield, width_mm: float) -> shapely.G
     return band
 
 
-def _cross_section(footprint: shapely.Geometry) -> CrossSection:
+def cross_section(footprint: shapely.Geometry) -> CrossSection:
     contours = []
     for poly in getattr(footprint, "geoms", [footprint]):
         if poly.geom_type != "Polygon" or poly.is_empty:
@@ -72,27 +72,38 @@ def _cross_section(footprint: shapely.Geometry) -> CrossSection:
     return CrossSection(contours, FillRule.EvenOdd)
 
 
+def padded_solid(surface: Surface, dz: float) -> Manifold:
+    """Terrain surface shifted by `dz`, padded past the model edges and below z = 0.
+
+    The padding keeps its walls and bottom from coinciding with the terrain's
+    (coplanar faces make booleans fragile). Inside the model it follows the
+    terrain triangulation exactly.
+    """
+    o = OVERHANG_MM
+    xs_p = np.concatenate([[surface.xs[0] - o], surface.xs, [surface.xs[-1] + o]])
+    ys_p = np.concatenate([[surface.ys[0] + o], surface.ys, [surface.ys[-1] - o]])
+    z_p = np.pad(surface.z + dz, 1, mode="edge")
+    return to_manifold(*grid_solid(xs_p, ys_p, z_p, bottom_z=-o))
+
+
+def raised_solid(surface: Surface, raise_mm: float) -> Manifold:
+    """Terrain raised by the route height, limited to the model footprint."""
+    return to_manifold(*grid_solid(surface.xs, surface.ys, surface.z + raise_mm))
+
+
 def build_parts(surface: Surface, footprint: shapely.Geometry, params: ModelParams) -> ModelParts:
     """Cut the route groove into the terrain and build the matching insert."""
     if params.groove_depth_mm >= params.base_mm:
         raise RouteError("The groove must be shallower than the base thickness.")
 
     o = OVERHANG_MM
-    xs, ys, z = surface.xs, surface.ys, surface.z
+    z = surface.z
     terrain = terrain_solid(surface)
-
-    # Surface of the groove bottom, padded past the model edges so that its walls
-    # and bottom never coincide with the terrain's (coplanar faces make booleans fragile).
-    xs_p = np.concatenate([[xs[0] - o], xs, [xs[-1] + o]])
-    ys_p = np.concatenate([[ys[0] + o], ys, [ys[-1] - o]])
-    groove_floor = to_manifold(
-        *grid_solid(xs_p, ys_p, np.pad(z - params.groove_depth_mm, 1, mode="edge"), bottom_z=-o)
-    )
-    # Terrain raised by the route height, limited to the model footprint.
-    raised = to_manifold(*grid_solid(xs, ys, z + params.route_raise_mm))
+    groove_floor = padded_solid(surface, -params.groove_depth_mm)
+    raised = raised_solid(surface, params.route_raise_mm)
 
     top = float(z.max()) + params.route_raise_mm + o
-    prism = Manifold.extrude(_cross_section(footprint), top + 2 * o).translate((0, 0, -2 * o))
+    prism = Manifold.extrude(cross_section(footprint), top + 2 * o).translate((0, 0, -2 * o))
     cutter = prism - groove_floor  # everything above the groove floor, inside the band
 
     route = (cutter ^ raised).simplify(CLEAN_TOLERANCE_MM)
