@@ -125,17 +125,18 @@ README.md       written after v1
 - [x] **Step 7: API.** (`backend/app/api.py`, `backend/app/pipeline.py`) `POST /api/gpx`, `POST /api/models` (mode + all parameters, validated), `GET /api/models/{id}/preview.glb` (inlay shown assembled), `GET /api/models/{id}/download?format=bambu|3mf|stl`, `GET /api/fit-test`. In-memory store of the last 20 tracks / 5 models. Alpe d'Huez: 5.5 s blended, 2.8 s inlay.
 - [x] **Step 8: Frontend: upload & map.** Drag-and-drop GPX, route on a MapLibre map (OpenTopoMap tiles), print area overlay following the margin/size sliders (`GET /api/gpx/{id}/frame`), stats.
 - [x] **Step 9: Frontend: parameters & 3D preview.** Mode choice (blended / inlay), model size, map margin, z-exaggeration, route width, inlay piece height and clearance, advanced settings; Generate; three.js preview (simplified mesh, ~2 MB, inlay shown assembled); downloads (Bambu project, plain 3MF, STL, fit test). Checked end to end in headless Chromium.
-- [ ] **Step 10: End-to-end test print.** One real GPX, printed on the A1. Tune the defaults (route width, raise, exaggeration).
-- [ ] **Step 11: README.** Setup, usage, parameters, printing tips for Bambu Studio.
+- [ ] **Step 10: End-to-end test print.** One real GPX, printed on the A1. Tune the defaults (route width, raise, exaggeration). *In progress:* inlay fit test printed (0.15 mm clearance is right), Bambu project opens without warning, app tested by the owner; full Alpe d'Huez print pending.
+- [x] **Step 11: README.** Setup (macOS/Linux/Windows), usage, print modes, settings, Bambu Studio tips, how it works, API, development, troubleshooting, data credits.
 
 ## 5. Next feature: automatic grid splitting (v1.1)
 
 For models much larger than the A1 bed (e.g. a 600 × 400 mm map of a long race), the app splits the model into a grid of tiles that each fit on the bed, then reassemble after printing.
 
 **Behaviour**
-- The user picks the **final** model size (no 250 mm cap any more). The app computes the smallest grid (columns × rows) whose tiles fit the usable bed area (default 240 × 240 mm, leaving a margin on the 256 mm bed).
+- The user types any **final** model size, e.g. 400 or 600 mm (no 250 mm cap any more); it is printed in several steps and assembled like a puzzle. Confirmed by the owner on 2026-10-09. The app computes the smallest grid (columns × rows) whose tiles fit the usable bed area (default 240 × 240 mm, leaving a margin on the 256 mm bed).
 - The user can override the grid (e.g. force 3 × 2) and see the cut lines on the 2D map and in the 3D preview.
 - Each tile is exported with its own terrain and route bodies, so every tile still prints in two colours.
+- Works in both print modes: in inlay mode, route pieces are also cut at the tile edges.
 
 **Geometry**
 - Build the full model once (terrain + route), then cut it with axis-aligned planes into tiles (manifold3d `split_by_plane` / box intersections), so tiles join without steps or gaps.
@@ -158,6 +159,9 @@ For models much larger than the A1 bed (e.g. a 600 × 400 mm map of a long race)
 
 ## 6. Backlog (later)
 
+- **GPX route cutter**: choose which portion of the GPX to display and print, e.g. with start/end handles on the map or on an elevation profile (by distance). The print frame follows the selected portion; the rest of the track is dropped (option: show it faded on the map only). Owner request, 2026-10-09.
+- Interface improvements (owner: later version)
+
 - Choose the AMS slots (colours) for terrain and route in the app: purge volume depends heavily on the colour pair (in the owner's flush matrix, purple → white costs 525 mm³ per change, white → purple 186 mm³)
 
 - Other shapes: circle, hexagon, custom polygon
@@ -167,7 +171,6 @@ For models much larger than the A1 bed (e.g. a 600 × 400 mm map of a long race)
 - Water bodies and rivers from OSM as a third colour
 - Several routes on one print
 - Strava / Komoot import
-- Global coverage
 
 ## 7. Decision log
 
@@ -190,6 +193,7 @@ For models much larger than the A1 bed (e.g. a 600 × 400 mm map of a long race)
 | 2026-10-09 | Bambu project 3MF built from a reference project saved by the owner | Bambu Studio only loads project config naming its own system presets; values must match the installed version |
 | 2026-10-09 | Bambu project keeps the owner's 4 filaments; terrain = slot 1, route = slot 2 | Re-indexing all per-filament arrays of the config is fragile; Bambu fills the rest from its system presets |
 | 2026-10-09 | Fit test result: 0.15 mm clearance is right on the owner's A1 | Kept as default |
+| 2026-10-09 | Owner validated the app and the Bambu project (no warning with File → Open Project) | v1 feature set complete; interface polish deferred |
 | 2026-10-09 | No geographic restriction in the API | Copernicus GLO-30 is global; "Europe" was only the test scope |
 | 2026-10-08 | Alpe d'Huez GPX (owner's Strava ride, stripped to position + elevation) used as the real-world test route | Real hairpins, portrait frame, 1400 m of relief |
 
