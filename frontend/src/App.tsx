@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import {
   buildModel,
   DEFAULT_OPTIONS,
@@ -6,10 +6,12 @@ import {
   getFrame,
   uploadGpx,
   type BuiltModel,
+  type Cut,
   type Frame,
   type ModelOptions,
   type UploadedTrack,
 } from './api'
+import { ElevationProfile, type Range } from './components/ElevationProfile'
 import { GpxDrop } from './components/GpxDrop'
 import { ParamsPanel } from './components/ParamsPanel'
 import { RouteMap } from './components/RouteMap'
@@ -32,22 +34,32 @@ export default function App() {
   const [options, setOptions] = useState<ModelOptions>(DEFAULT_OPTIONS)
   const [frame, setFrame] = useState<Frame | null>(null)
   const [model, setModel] = useState<BuiltModel | null>(null)
-  const [builtWith, setBuiltWith] = useState<ModelOptions | null>(null)
+  const [builtWith, setBuiltWith] = useState<string | null>(null)
+  // Route cutter: portion of the route to print, in km along it.
+  const [range, setRange] = useState<Range>([0, 0])
   const [view, setView] = useState<View>('map')
   const [uploading, setUploading] = useState(false)
   const [building, setBuilding] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Print area and model size follow the margin and size sliders.
+  const length = track?.length_km ?? 0
+  // The whole route is sent as "no cut", so the stats match the uploaded file exactly.
+  const cut: Cut = useMemo(
+    () => (range[0] > 0.001 || range[1] < length - 0.001 ? range : null),
+    [range, length],
+  )
+  const cutKey = cut ? `${cut[0].toFixed(3)}-${cut[1].toFixed(3)}` : 'all'
+
+  // Print area, model size and selected portion follow the sliders and the cutter.
   useEffect(() => {
     if (!track) return
     const timer = setTimeout(() => {
-      getFrame(track.gpx_id, options.margin_pct, options.size_mm)
+      getFrame(track.gpx_id, options.margin_pct, options.size_mm, cut)
         .then(setFrame)
         .catch(() => setFrame(null))
     }, 250)
     return () => clearTimeout(timer)
-  }, [track, options.margin_pct, options.size_mm])
+  }, [track, options.margin_pct, options.size_mm, cut])
 
   async function onFile(file: File) {
     setUploading(true)
@@ -55,6 +67,8 @@ export default function App() {
     try {
       const uploaded = await uploadGpx(file)
       setTrack(uploaded)
+      setRange([0, uploaded.length_km])
+      setFrame(null)
       setModel(null)
       setBuiltWith(null)
       setView('map')
@@ -70,9 +84,9 @@ export default function App() {
     setBuilding(true)
     setError(null)
     try {
-      const built = await buildModel(track.gpx_id, options)
+      const built = await buildModel(track.gpx_id, options, cut)
       setModel(built)
-      setBuiltWith(options)
+      setBuiltWith(JSON.stringify([options, cutKey]))
       setView('3d')
     } catch (e) {
       setError((e as Error).message)
@@ -81,7 +95,8 @@ export default function App() {
     }
   }
 
-  const outdated = model !== null && JSON.stringify(builtWith) !== JSON.stringify(options)
+  const outdated = model !== null && builtWith !== JSON.stringify([options, cutKey])
+  const shown = cut && frame ? frame.selection.stats : track?.stats
 
   return (
     <div className="layout">
@@ -97,20 +112,45 @@ export default function App() {
           {track && (
             <div className="route-info">
               <h3>{track.name}</h3>
-              <dl className="stats">
-                <div>
-                  <dt>Distance</dt>
-                  <dd>{fmt(track.stats.distance_km, 'km', 1)}</dd>
-                </div>
-                <div>
-                  <dt>Climb</dt>
-                  <dd>{fmt(track.stats.ascent_m, 'm')}</dd>
-                </div>
-                <div>
-                  <dt>Highest</dt>
-                  <dd>{fmt(track.stats.max_ele_m, 'm')}</dd>
-                </div>
-              </dl>
+              {shown && (
+                <dl className="stats">
+                  <div>
+                    <dt>Distance</dt>
+                    <dd>{fmt(shown.distance_km, 'km', 1)}</dd>
+                  </div>
+                  <div>
+                    <dt>Climb</dt>
+                    <dd>{fmt(shown.ascent_m, 'm')}</dd>
+                  </div>
+                  <div>
+                    <dt>Highest</dt>
+                    <dd>{fmt(shown.max_ele_m, 'm')}</dd>
+                  </div>
+                </dl>
+              )}
+            </div>
+          )}
+          {track && track.profile.elevation_m.length > 1 && (
+            <div className="cutter">
+              <div className="cutter__head">
+                <span>
+                  {cut
+                    ? `Printing km ${cut[0].toFixed(1)} → ${cut[1].toFixed(1)} of ${length.toFixed(1)}`
+                    : 'Printing the whole route'}
+                </span>
+                {cut && (
+                  <button type="button" className="link" onClick={() => setRange([0, length])}>
+                    Whole route
+                  </button>
+                )}
+              </div>
+              <ElevationProfile
+                profile={track.profile}
+                lengthKm={length}
+                range={range}
+                onChange={setRange}
+              />
+              <p className="hint">Drag the two handles to print only part of the route.</p>
             </div>
           )}
         </section>
@@ -210,7 +250,11 @@ export default function App() {
               </button>
             </div>
             <div className="view" hidden={view !== 'map'}>
-              <RouteMap track={track} frame={frame?.bbox ?? null} />
+              <RouteMap
+                track={track}
+                frame={frame?.bbox ?? null}
+                selection={cut && frame ? frame.selection.geojson : null}
+              />
             </div>
             {model && view === '3d' && (
               <div className="view">

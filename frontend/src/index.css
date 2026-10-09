@@ -380,3 +380,106 @@ button {
     min-height: 60vh;
   }
 }
+
+/* Route cutter: elevation profile with start/end handles */
+.cutter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cutter__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.profile {
+  position: relative;
+}
+
+.profile__chart {
+  display: block;
+  width: 100%;
+  touch-action: none;
+  user-select: none;
+}
+
+.profile__grid {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.profile__tick {
+  font-size: 10px;
+  fill: var(--muted);
+}
+
+.profile__line {
+  fill: none;
+  stroke: var(--route);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.profile__line--off {
+  stroke: #b3bac4;
+}
+
+.profile__area {
+  fill: var(--route);
+  fill-opacity: 0.1;
+}
+
+.profile__area--off {
+  fill: #b3bac4;
+  fill-opacity: 0.15;
+}
+
+.profile__crosshair {
+  stroke: var(--muted);
+  stroke-width: 1;
+}
+
+.profile__dot {
+  fill: var(--route);
+  stroke: var(--panel);
+  stroke-width: 2;
+}
+
+.profile__handle {
+  cursor: ew-resize;
+  outline: none;
+}
+
+.profile__handle line {
+  stroke: var(--text);
+  stroke-width: 1.5;
+}
+
+.profile__grip {
+  fill: var(--panel);
+  stroke: var(--text);
+  stroke-width: 1.5;
+}
+
+.profile__handle:focus-visible .profile__grip,
+.profile__handle--active .profile__grip {
+  fill: var(--accent);
+  stroke: var(--accent);
+}
+
+.profile__tooltip {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  background: var(--text);
+  color: var(--panel);
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  pointer-events: none;
+}

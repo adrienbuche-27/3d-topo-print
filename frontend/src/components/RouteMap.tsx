@@ -4,14 +4,24 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 // let Vite build the worker and hand its URL over explicitly.
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import { useEffect, useRef } from 'react'
-import type { BBox, UploadedTrack } from '../api'
+import type { BBox, RouteLine, UploadedTrack } from '../api'
 
 maplibregl.setWorkerUrl(workerUrl)
 
 interface Props {
   track: UploadedTrack
   frame: BBox | null
+  // Route cutter: the portion to print; the rest of the route is drawn faded.
+  selection: RouteLine | null
 }
+
+interface Drawn {
+  track: UploadedTrack
+  frame: BBox | null
+  selection: RouteLine | null
+}
+
+const EMPTY: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] }
 
 // OpenTopoMap: topographic raster tiles, fine for occasional personal use.
 const STYLE: maplibregl.StyleSpecification = {
@@ -54,19 +64,21 @@ function framePolygon(b: BBox): GeoJSON.Feature<GeoJSON.Polygon> {
   }
 }
 
-function draw(m: maplibregl.Map, track: UploadedTrack, frame: BBox | null) {
-  ;(m.getSource('route') as maplibregl.GeoJSONSource).setData(track.geojson)
-  ;(m.getSource('frame') as maplibregl.GeoJSONSource).setData(framePolygon(frame ?? track.bbox))
+function draw(m: maplibregl.Map, { track, frame, selection }: Drawn) {
+  const source = (id: string) => m.getSource(id) as maplibregl.GeoJSONSource
+  source('route').setData(selection ?? track.geojson)
+  source('route-full').setData(selection ? track.geojson : EMPTY)
+  source('frame').setData(framePolygon(frame ?? track.bbox))
 }
 
-export function RouteMap({ track, frame }: Props) {
+export function RouteMap({ track, frame, selection }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const map = useRef<maplibregl.Map | null>(null)
   const loaded = useRef(false)
   // Latest data to draw; applied as soon as the map style has loaded.
-  const latest = useRef<{ track: UploadedTrack; frame: BBox | null }>({ track, frame })
+  const latest = useRef<Drawn>({ track, frame, selection })
   useEffect(() => {
-    latest.current = { track, frame }
+    latest.current = { track, frame, selection }
   })
 
   // Create the map once.
@@ -81,8 +93,9 @@ export function RouteMap({ track, frame }: Props) {
     m.addControl(new maplibregl.AttributionControl({ compact: true }))
     // The style is enough to add our layers; 'load' would also wait for the first tiles.
     m.once('style.load', () => {
-      m.addSource('frame', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
-      m.addSource('route', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
+      m.addSource('frame', { type: 'geojson', data: EMPTY })
+      m.addSource('route', { type: 'geojson', data: EMPTY })
+      m.addSource('route-full', { type: 'geojson', data: EMPTY })
       m.addLayer({
         id: 'frame-fill',
         type: 'fill',
@@ -94,6 +107,13 @@ export function RouteMap({ track, frame }: Props) {
         type: 'line',
         source: 'frame',
         paint: { 'line-color': '#2f6fde', 'line-width': 2, 'line-dasharray': [3, 2] },
+      })
+      m.addLayer({
+        id: 'route-full',
+        type: 'line',
+        source: 'route-full',
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: { 'line-color': '#59636e', 'line-width': 2, 'line-opacity': 0.5 },
       })
       m.addLayer({
         id: 'route-casing',
@@ -110,7 +130,7 @@ export function RouteMap({ track, frame }: Props) {
         paint: { 'line-color': '#e4572e', 'line-width': 3 },
       })
       loaded.current = true
-      draw(m, latest.current.track, latest.current.frame)
+      draw(m, latest.current)
     })
     map.current = m
     return () => {
@@ -122,8 +142,8 @@ export function RouteMap({ track, frame }: Props) {
 
   // Route and print area.
   useEffect(() => {
-    if (map.current && loaded.current) draw(map.current, track, frame)
-  }, [track, frame])
+    if (map.current && loaded.current) draw(map.current, { track, frame, selection })
+  }, [track, frame, selection])
 
   // Zoom to the print area when a new track arrives.
   useEffect(() => {

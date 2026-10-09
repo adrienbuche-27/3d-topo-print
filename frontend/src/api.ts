@@ -13,12 +13,21 @@ export interface TrackStats {
   points: number
 }
 
+export interface Profile {
+  distance_km: number[]
+  elevation_m: number[] // empty when the GPX has no elevations
+}
+
+export type RouteLine = GeoJSON.Feature<GeoJSON.MultiLineString>
+
 export interface UploadedTrack {
   gpx_id: string
   name: string
   stats: TrackStats
+  length_km: number
+  profile: Profile
   bbox: BBox
-  geojson: GeoJSON.Feature<GeoJSON.MultiLineString>
+  geojson: RouteLine
 }
 
 export interface Frame {
@@ -26,6 +35,14 @@ export interface Frame {
   real_size_km: [number, number]
   size_mm: [number, number]
   scale: string
+  selection: { stats: TrackStats; geojson: RouteLine }
+}
+
+/** Portion of the route to print, in km along it; null = the whole route. */
+export type Cut = [number, number] | null
+
+function cutParams(cut: Cut): Record<string, number> {
+  return cut ? { start_km: cut[0], end_km: cut[1] } : {}
 }
 
 export interface ModelOptions {
@@ -100,16 +117,22 @@ export function uploadGpx(file: File): Promise<UploadedTrack> {
   return request('/api/gpx', { method: 'POST', body: form })
 }
 
-export function getFrame(gpxId: string, marginPct: number, sizeMm: number): Promise<Frame> {
+export function getFrame(
+  gpxId: string,
+  marginPct: number,
+  sizeMm: number,
+  cut: Cut,
+): Promise<Frame> {
   const params = new URLSearchParams({ margin_pct: String(marginPct), size_mm: String(sizeMm) })
+  for (const [key, value] of Object.entries(cutParams(cut))) params.set(key, String(value))
   return request(`/api/gpx/${gpxId}/frame?${params}`)
 }
 
-export function buildModel(gpxId: string, options: ModelOptions): Promise<BuiltModel> {
+export function buildModel(gpxId: string, options: ModelOptions, cut: Cut): Promise<BuiltModel> {
   return request('/api/models', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ gpx_id: gpxId, ...options }),
+    body: JSON.stringify({ gpx_id: gpxId, ...options, ...cutParams(cut) }),
   })
 }
 
