@@ -126,6 +126,26 @@ async def upload_gpx(file: UploadFile = File(...)) -> dict:
     }
 
 
+@router.get("/gpx/{gpx_id}/frame")
+def frame(
+    gpx_id: str,
+    margin_pct: float = Query(10, ge=0, le=200),
+    size_mm: float = Query(180, ge=20, le=250),
+) -> dict:
+    """Print area for a margin, and the model's footprint for a size (longest side)."""
+    if gpx_id not in _tracks:
+        raise HTTPException(404, "Unknown GPX id; upload the file again.")
+    _, track = _tracks[gpx_id]
+    f = compute_frame(track, margin_pct=margin_pct)
+    scale = size_mm / max(f.width_m, f.height_m)  # print mm per metre
+    return {
+        "bbox": f.bbox_lonlat,
+        "real_size_km": [round(f.width_m / 1000, 2), round(f.height_m / 1000, 2)],
+        "size_mm": [round(f.width_m * scale, 1), round(f.height_m * scale, 1)],
+        "scale": f"1:{round(1000 / scale):,}",
+    }
+
+
 @router.post("/models")
 async def create_model(body: ModelRequest, request: Request) -> dict:
     if body.gpx_id not in _tracks:

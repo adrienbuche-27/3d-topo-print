@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal
 
 from .dem import TileSource
@@ -18,6 +18,8 @@ Mode = Literal["blended", "inlay"]
 
 # Defaults that depend on the print mode: separate pieces are more fragile.
 DEFAULT_ROUTE_WIDTH_MM = {"blended": 1.2, "inlay": 1.6}
+# The browser preview is simplified to this tolerance: ~10x smaller, visually identical.
+PREVIEW_TOLERANCE_MM = 0.05
 
 
 @dataclass(frozen=True)
@@ -67,6 +69,13 @@ def build(
             ),
         ]
         terrain, pieces = inlay.terrain, [p.solid for p in inlay.pieces]
+
+    preview = [
+        replace(
+            obj, parts=[(name, solid.simplify(PREVIEW_TOLERANCE_MM)) for name, solid in obj.parts]
+        )
+        for obj in preview
+    ]
 
     x0, y0, z0, x1, y1, z1 = terrain.bounding_box()
     stats = {

@@ -113,3 +113,12 @@ def test_fit_test_download(client: TestClient) -> None:
     response = client.get("/api/fit-test", params={"inlay_clearance_mm": 0.2})
     assert response.status_code == 200
     assert 'filename="inlay-fit-test.3mf"' in response.headers["content-disposition"]
+
+
+def test_frame_follows_margin_and_size(client: TestClient, gpx_id: str) -> None:
+    small = client.get(f"/api/gpx/{gpx_id}/frame", params={"margin_pct": 0, "size_mm": 100}).json()
+    large = client.get(f"/api/gpx/{gpx_id}/frame", params={"margin_pct": 50, "size_mm": 100}).json()
+    assert max(small["size_mm"]) == pytest.approx(100)
+    assert large["real_size_km"][0] > small["real_size_km"][0]
+    assert large["bbox"][0] < small["bbox"][0]  # wider map to the west
+    assert client.get("/api/gpx/nope/frame").status_code == 404

@@ -123,8 +123,8 @@ README.md       written after v1
 - [x] **Step 6b: Inlay mode and fit test.** Route printed separately in flat-bottomed pieces (see 3.2 item 8). Pieces are split along the route (Voronoi partition of centreline samples) so cuts run square across the road; a road ridden twice counts once. Alpe d'Huez: 16 pieces, 2–9 mm tall, or 1 piece of 65 mm.
 - [x] **Step 6c: Bambu Studio project 3MF.** (`backend/app/bambu/`) Same structure as a project saved by Bambu Studio 2.8.2.61: production extension (one model file per object), `model_settings.config` (parts, filaments, plates) and the owner's `project_settings.config` as template (A1, 0.4 nozzle, 0.20 mm Standard, 4 AMS filaments). Terrain on filament 1, route on filament 2; inlay: terrain on plate 1, pieces on plate 2; blended: flush into the terrain's infill. **Check pending with the owner: no warning on import.**
 - [x] **Step 7: API.** (`backend/app/api.py`, `backend/app/pipeline.py`) `POST /api/gpx`, `POST /api/models` (mode + all parameters, validated), `GET /api/models/{id}/preview.glb` (inlay shown assembled), `GET /api/models/{id}/download?format=bambu|3mf|stl`, `GET /api/fit-test`. In-memory store of the last 20 tracks / 5 models. Alpe d'Huez: 5.5 s blended, 2.8 s inlay.
-- [ ] **Step 8: Frontend: upload & map.** Drag-and-drop GPX, route on a MapLibre map, bbox overlay, stats.
-- [ ] **Step 9: Frontend: parameters & 3D preview.** Parameter form (at least model size, map margin, z-exaggeration, route width), "Generate" button, three.js preview with 2 colours, download buttons.
+- [x] **Step 8: Frontend: upload & map.** Drag-and-drop GPX, route on a MapLibre map (OpenTopoMap tiles), print area overlay following the margin/size sliders (`GET /api/gpx/{id}/frame`), stats.
+- [x] **Step 9: Frontend: parameters & 3D preview.** Mode choice (blended / inlay), model size, map margin, z-exaggeration, route width, inlay piece height and clearance, advanced settings; Generate; three.js preview (simplified mesh, ~2 MB, inlay shown assembled); downloads (Bambu project, plain 3MF, STL, fit test). Checked end to end in headless Chromium.
 - [ ] **Step 10: End-to-end test print.** One real GPX, printed on the A1. Tune the defaults (route width, raise, exaggeration).
 - [ ] **Step 11: README.** Setup, usage, parameters, printing tips for Bambu Studio.
 
@@ -159,7 +159,6 @@ For models much larger than the A1 bed (e.g. a 600 × 400 mm map of a long race)
 ## 6. Backlog (later)
 
 - Choose the AMS slots (colours) for terrain and route in the app: purge volume depends heavily on the colour pair (in the owner's flush matrix, purple → white costs 525 mm³ per change, white → purple 186 mm³)
-- Lighter preview mesh for the browser (the full-resolution GLB is ~16 MB)
 
 - Other shapes: circle, hexagon, custom polygon
 - Manual bbox editing on the map
