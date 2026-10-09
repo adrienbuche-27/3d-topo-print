@@ -40,3 +40,7 @@ pythonpath = ["."]
 markers = [
     "network: downloads real elevation data (deselect with -m \"not network\")",
 ]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI declares request parameters with these calls in argument defaults.
+extend-immutable-calls = ["fastapi.File", "fastapi.Query"]

@@ -80,7 +80,8 @@ A personal web app for designing 3D-printable terrain models of a location, with
 | POST | `/api/gpx` | Upload a GPX; returns track GeoJSON, stats (distance, D+), and the suggested bbox |
 | POST | `/api/model` | Takes the GPX id + parameters; returns a model id, a GLB preview URL, and stats |
 | GET | `/api/model/{id}/preview.glb` | Mesh for the 3D preview |
-| GET | `/api/model/{id}/download?format=3mf\|stl` | Printable file |
+| GET | `/api/model/{id}/download?format=bambu\|3mf\|stl` | Printable file (`bambu` = Bambu Studio project) |
+| GET | `/api/fit-test` | Inlay fit test with the given width, clearance and piece height |
 
 **Parameters:**
 - `size_mm`: longest side of the model (default 180, max 250 in v1; larger sizes come with grid splitting, see section 5). A larger print is the way to separate tight hairpins.
@@ -121,7 +122,7 @@ README.md       written after v1
 - [x] **Step 6: Export.** 3MF with 2 objects, STL zip, GLB. Manual check: open in Bambu Studio and assign 2 filaments. (`backend/app/export.py`; 3MF = one assembly of two named parts, validated with lib3mf; Alpe d'Huez 3MF is 8.5 MB. Bambu Studio check done: loads as one object with two parts, slices without errors, but warns about the missing project config.)
 - [x] **Step 6b: Inlay mode and fit test.** Route printed separately in flat-bottomed pieces (see 3.2 item 8). Pieces are split along the route (Voronoi partition of centreline samples) so cuts run square across the road; a road ridden twice counts once. Alpe d'Huez: 16 pieces, 2–9 mm tall, or 1 piece of 65 mm.
 - [x] **Step 6c: Bambu Studio project 3MF.** (`backend/app/bambu/`) Same structure as a project saved by Bambu Studio 2.8.2.61: production extension (one model file per object), `model_settings.config` (parts, filaments, plates) and the owner's `project_settings.config` as template (A1, 0.4 nozzle, 0.20 mm Standard, 4 AMS filaments). Terrain on filament 1, route on filament 2; inlay: terrain on plate 1, pieces on plate 2; blended: flush into the terrain's infill. **Check pending with the owner: no warning on import.**
-- [ ] **Step 7: API.** FastAPI endpoints, in-memory/disk model store, error handling (GPX outside Europe, route too big).
+- [x] **Step 7: API.** (`backend/app/api.py`, `backend/app/pipeline.py`) `POST /api/gpx`, `POST /api/models` (mode + all parameters, validated), `GET /api/models/{id}/preview.glb` (inlay shown assembled), `GET /api/models/{id}/download?format=bambu|3mf|stl`, `GET /api/fit-test`. In-memory store of the last 20 tracks / 5 models. Alpe d'Huez: 5.5 s blended, 2.8 s inlay.
 - [ ] **Step 8: Frontend: upload & map.** Drag-and-drop GPX, route on a MapLibre map, bbox overlay, stats.
 - [ ] **Step 9: Frontend: parameters & 3D preview.** Parameter form (at least model size, map margin, z-exaggeration, route width), "Generate" button, three.js preview with 2 colours, download buttons.
 - [ ] **Step 10: End-to-end test print.** One real GPX, printed on the A1. Tune the defaults (route width, raise, exaggeration).
@@ -157,6 +158,9 @@ For models much larger than the A1 bed (e.g. a 600 × 400 mm map of a long race)
 
 ## 6. Backlog (later)
 
+- Choose the AMS slots (colours) for terrain and route in the app: purge volume depends heavily on the colour pair (in the owner's flush matrix, purple → white costs 525 mm³ per change, white → purple 186 mm³)
+- Lighter preview mesh for the browser (the full-resolution GLB is ~16 MB)
+
 - Other shapes: circle, hexagon, custom polygon
 - Manual bbox editing on the map
 - Text / labels (route name, distance, D+) on the base or the side
@@ -186,6 +190,8 @@ For models much larger than the A1 bed (e.g. a 600 × 400 mm map of a long race)
 | 2026-10-09 | Inlay pieces cut along contour bands, flat bottoms, 0.15 mm clearance, 1.6 mm width | A route following the terrain cannot print alone; short flat-bottomed pieces print without supports |
 | 2026-10-09 | Bambu project 3MF built from a reference project saved by the owner | Bambu Studio only loads project config naming its own system presets; values must match the installed version |
 | 2026-10-09 | Bambu project keeps the owner's 4 filaments; terrain = slot 1, route = slot 2 | Re-indexing all per-filament arrays of the config is fragile; Bambu fills the rest from its system presets |
+| 2026-10-09 | Fit test result: 0.15 mm clearance is right on the owner's A1 | Kept as default |
+| 2026-10-09 | No geographic restriction in the API | Copernicus GLO-30 is global; "Europe" was only the test scope |
 | 2026-10-08 | Alpe d'Huez GPX (owner's Strava ride, stripped to position + elevation) used as the real-world test route | Real hairpins, portrait frame, 1400 m of relief |
 
 ## 8. Open questions
