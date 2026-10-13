@@ -1,0 +1,13 @@
+{
+  "extraKnownMarketplaces": {
+    "logo-design-skill": {
+      "source": {
+        "source": "github",
+        "repo": "kaankiziltug/logo-design-skill"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "logo-design@logo-design-skill": true
+  }
+}
